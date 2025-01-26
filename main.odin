@@ -52,7 +52,15 @@ parseApplication :: proc(tokens: ^#soa[dynamic]Token,
                          parentNodeIndex: int,
                          currentTokenIndex: int,
                          tree_stack: ^#soa[dynamic]ParseNode) -> (int, int) {
-  append(tree_stack, ParseNode{currentTokenIndex, NodeType.Application, len(tree_stack)-1, parentNodeIndex})
+  appParentIndex : int
+  if len(tree_stack) > 0 {
+    appParentIndex = tree_stack[len(tree_stack)-1].parentIndex
+  }
+  else {
+    appParentIndex = -1
+  }
+
+  append(tree_stack, ParseNode{currentTokenIndex, NodeType.Application, len(tree_stack)-1, appParentIndex})
   currentTokenIndex := currentTokenIndex+1
 
   assert (tokens[currentTokenIndex].token == "(")
@@ -61,10 +69,15 @@ parseApplication :: proc(tokens: ^#soa[dynamic]Token,
 
   currentNodeIndex := parentNodeIndex
   for currentTokenIndex < len(tokens) && tokens[currentTokenIndex].token != ")" {
-
+    if (tokens[currentTokenIndex].token == ",") {
+      currentTokenIndex += 1
+    }
     currentNodeIndex, currentTokenIndex = parse(tokens, parentNodeIndex, currentTokenIndex, tree_stack)
   }
-  return currentNodeIndex, currentTokenIndex
+
+  assert (tokens[currentTokenIndex].token == ")")
+
+  return currentNodeIndex, currentTokenIndex+1
 }
 
 parse :: proc(tokens: ^#soa[dynamic]Token,
@@ -72,6 +85,9 @@ parse :: proc(tokens: ^#soa[dynamic]Token,
               currentTokenIndex: int,
               tree_stack: ^#soa[dynamic]ParseNode) -> (int, int) {
 
+  // we map from parse node to token (injective function because there may be tokens that don't map back? or they could be sets of tokens)
+
+  assert (tokens[currentTokenIndex].token != ")")
   if currentTokenIndex == len(tokens) {
     return parentNodeIndex, currentTokenIndex
   }
@@ -82,29 +98,24 @@ parse :: proc(tokens: ^#soa[dynamic]Token,
     case TokenType.Number:
 
       append(tree_stack, ParseNode{currentTokenIndex, NodeType.Number, len(tree_stack)-1, parentNodeIndex})
-
-      // len(tree_stack)-1 because it's 0-indexed
-      // currentTokenIndex+1 because it starts at 0
-      // we map from parse node to token (injective function because there may be tokens that don't map back? or they could be sets of tokens)
-      return parse(tokens, len(tree_stack)-1, currentTokenIndex+1, tree_stack)
+      return parentNodeIndex, currentTokenIndex+1
 
     case TokenType.Ident:
       leftParen, left_paren_found := lookahead(tokens, currentTokenIndex, 1, "(").?
       if (left_paren_found) {
         fmt.println("Parsing a function application!")
 
-        // FIXME should return the new parent node index + the new token index so we can keep parsing if necessary
-        newParentNodeIndex, newCurrentTokenIndex := parseApplication(tokens, parentNodeIndex, currentTokenIndex, tree_stack)
-        return parse(tokens, newParentNodeIndex, newCurrentTokenIndex, tree_stack)
+        newParentNodeIndex, newCurrentTokenIndex := parseApplication(tokens, len(tree_stack), currentTokenIndex, tree_stack)
+        return newParentNodeIndex, newCurrentTokenIndex
       }
       else {
         append(tree_stack, ParseNode{currentTokenIndex, NodeType.Variable, len(tree_stack)-1, parentNodeIndex})
+        return parentNodeIndex, currentTokenIndex+1
       }
     case TokenType.Paren:
     case TokenType.Comma:
   }
-
-  return parse(tokens, len(tree_stack)-1, currentTokenIndex+1, tree_stack)
+  return parentNodeIndex, currentTokenIndex
 }
 
 
@@ -211,7 +222,7 @@ tokenize :: proc(input_st: string, tokens: ^#soa[dynamic]Token) {
 main :: proc() {
   //test_string: string = "(12 + (4 * 3) / 234)*(-1555) + abc"
   //test_string: string = "123 4 333 abcd(44, 23, foobar)"
-  test_string: string = "123 b 4 foo(333,blarg,bar(45,d),999)"
+  test_string: string = "foo(333,blarg,bar(1,2,3), aaaa, 4442, x(94, a), aad)"
   tokens: #soa[dynamic]Token
   tree_stack: #soa[dynamic]ParseNode
 
@@ -220,10 +231,9 @@ main :: proc() {
   for tok in tokens {
     fmt.println(tok)
   }
-  parse(&tokens,
-        -1,
-        0,
-        &tree_stack)
+  nodeIndex, tokenIndex := parse(&tokens, -1, 0, &tree_stack)
+
+  assert (tokenIndex == len(tokens))
 
   for node in tree_stack {
     fmt.println(node)
