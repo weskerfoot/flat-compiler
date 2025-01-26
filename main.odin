@@ -6,11 +6,16 @@ import "core:strconv"
 
 OpAssoc :: enum{NoAssoc, LeftAssoc, RightAssoc}
 
+OpIndex :: distinct int
+InfixOperator :: struct {
+  prec: int,
+  assoc: OpAssoc
+}
+
 Token :: struct {
   token: string,
   type: TokenType,
-  prec: int,
-  assoc: OpAssoc
+  infix_op: Maybe(InfixOperator)
 }
 
 TokenType :: enum{Number, Ident, Paren, Comma}
@@ -148,6 +153,13 @@ op_assoc :: proc(op_st : string) -> OpAssoc {
   return result
 }
 
+get_op :: proc(op_st : string) -> Maybe(InfixOperator) {
+  if !is_operator(cast(rune)op_st[0]) {
+    return nil
+  }
+  return InfixOperator{op_prec(op_st), op_assoc(op_st)}
+}
+
 is_identifier_char :: proc(c : rune) -> bool {
   return !is_operator(c) && !unicode.is_number(c) && !unicode.is_space(c) && c != '(' && c != ')' && c != ','
 }
@@ -163,12 +175,12 @@ tokenize :: proc(input_st: string, tokens: ^#soa[dynamic]Token) {
 
     if c == '(' || c == ')' {
       current_tok_type = TokenType.Paren
-      append(tokens, Token{string(input_st[current_tok_start:current_tok_end]), current_tok_type, 0, OpAssoc.NoAssoc})
+      append(tokens, Token{string(input_st[current_tok_start:current_tok_end]), current_tok_type, nil})
     }
 
     if c == ',' {
       current_tok_type = TokenType.Comma
-      append(tokens, Token{string(input_st[current_tok_start:current_tok_end]), current_tok_type, 0, OpAssoc.NoAssoc})
+      append(tokens, Token{string(input_st[current_tok_start:current_tok_end]), current_tok_type, nil})
     }
 
     if unicode.is_number(c) {
@@ -181,7 +193,7 @@ tokenize :: proc(input_st: string, tokens: ^#soa[dynamic]Token) {
         }
         current_tok_end += 1
       }
-      append(tokens, Token{string(input_st[current_tok_start:current_tok_end]), current_tok_type, 0, OpAssoc.NoAssoc})
+      append(tokens, Token{string(input_st[current_tok_start:current_tok_end]), current_tok_type, nil})
     }
 
     if is_identifier_char(c) {
@@ -194,7 +206,8 @@ tokenize :: proc(input_st: string, tokens: ^#soa[dynamic]Token) {
         }
         current_tok_end += 1
       }
-      append(tokens, Token{string(input_st[current_tok_start:current_tok_end]), current_tok_type, 1, OpAssoc.NoAssoc})
+
+      append(tokens, Token{string(input_st[current_tok_start:current_tok_end]), current_tok_type, nil})
     }
 
     if is_operator(c) {
@@ -210,7 +223,9 @@ tokenize :: proc(input_st: string, tokens: ^#soa[dynamic]Token) {
 
       op_tok_st: string = string(input_st[current_tok_start:current_tok_end])
 
-      append(tokens, Token{op_tok_st, current_tok_type, op_prec(op_tok_st), op_assoc(op_tok_st)})
+      op_info := get_op(op_tok_st)
+
+      append(tokens, Token{op_tok_st, current_tok_type, op_info})
     }
 
     current_tok_start = current_tok_end
@@ -221,7 +236,7 @@ tokenize :: proc(input_st: string, tokens: ^#soa[dynamic]Token) {
 main :: proc() {
   //test_string: string = "(12 + (4 * 3) / 234)*(-1555) + abc"
   //test_string: string = "123 4 333 abcd(44, 23, foobar)"
-  test_string: string = "foo(333,blarg,bar(1,2,3), aaaa, 4442, x(94, a), aad)"
+  test_string: string = "foo(333*12,blarg,bar(1,2,3), aaaa, 4442, x(94, a), aad)"
   tokens: #soa[dynamic]Token
   tree_stack: #soa[dynamic]ParseNode
 
