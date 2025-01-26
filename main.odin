@@ -19,7 +19,6 @@ NodeType :: enum{Application, Variable, Number}
 ParseNode :: struct {
   tokenIndex: int,
   nodeType: NodeType,
-  childIndex: int, // if there's multiple children, it's the "last" child's index which should end up being laid out in order on the stack
   parentIndex: int
 }
 
@@ -60,7 +59,7 @@ parseApplication :: proc(tokens: ^#soa[dynamic]Token,
     appParentIndex = -1
   }
 
-  append(tree_stack, ParseNode{currentTokenIndex, NodeType.Application, len(tree_stack)-1, appParentIndex})
+  append(tree_stack, ParseNode{currentTokenIndex, NodeType.Application, appParentIndex})
   currentTokenIndex := currentTokenIndex+1
 
   assert (tokens[currentTokenIndex].token == "(")
@@ -97,7 +96,7 @@ parse :: proc(tokens: ^#soa[dynamic]Token,
   switch token.type {
     case TokenType.Number:
 
-      append(tree_stack, ParseNode{currentTokenIndex, NodeType.Number, len(tree_stack)-1, parentNodeIndex})
+      append(tree_stack, ParseNode{currentTokenIndex, NodeType.Number, parentNodeIndex})
       return parentNodeIndex, currentTokenIndex+1
 
     case TokenType.Ident:
@@ -109,7 +108,7 @@ parse :: proc(tokens: ^#soa[dynamic]Token,
         return newParentNodeIndex, newCurrentTokenIndex
       }
       else {
-        append(tree_stack, ParseNode{currentTokenIndex, NodeType.Variable, len(tree_stack)-1, parentNodeIndex})
+        append(tree_stack, ParseNode{currentTokenIndex, NodeType.Variable, parentNodeIndex})
         return parentNodeIndex, currentTokenIndex+1
       }
     case TokenType.Paren:
