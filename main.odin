@@ -19,7 +19,9 @@ Token :: struct {
 }
 
 TokenType :: enum{Number, Ident, Paren, Comma}
-NodeType :: enum{Application, Variable, Number}
+
+// TODO add distinction between Variable, TypeName, and FunctionName instead of just Identifier
+NodeType :: enum{Application, Identifier, Number, Root}
 
 ParseNode :: struct {
   tokenIndex: int,
@@ -27,7 +29,16 @@ ParseNode :: struct {
   parentIndex: int
 }
 
-ParserState :: enum{App, Infix, NonTerminal, Terminal}
+ParserStates :: enum{App, Infix, NonTerminal, Terminal}
+
+ParseState :: struct {
+  parentNodeIndex: int,
+  nodeType: NodeType,
+  tokenIndex: int,
+  state: ParserStates,
+  tokens: ^#soa[dynamic]Token,
+  tree_stack: ^#soa[dynamic]ParseNode,
+}
 
 lookahead_basic :: proc(tokens: ^#soa[dynamic]Token,
                         start: int,
@@ -54,154 +65,6 @@ lookahead_with_tokvalue :: proc(tokens: ^#soa[dynamic]Token,
 
 lookahead :: proc{lookahead_with_tokvalue, lookahead_basic}
 
-parseInfix :: proc(tokens: ^#soa[dynamic]Token,
-                   parentNodeIndex: int,
-                   currentTokenIndex: int,
-                   tree_stack: ^#soa[dynamic]ParseNode,
-                   minPrec: int) -> (int, int) {
-  appParentIndex : int
-  if len(tree_stack) > 0 {
-    appParentIndex = tree_stack[len(tree_stack)-1].parentIndex
-  }
-  else {
-    appParentIndex = -1
-  }
-
-  // parse lhs first
-  fmt.println("Parsing lhs of infix", currentTokenIndex)
-  fmt.println(tokens[currentTokenIndex])
-  fmt.println(tokens[currentTokenIndex+1])
-  assert (tokens[currentTokenIndex+1].infix_op != nil)
-  nodeIndex, tokenIndex := parse(tokens, parentNodeIndex, currentTokenIndex+1, tree_stack, ParserState.Infix)
-
-  nextMinPrec : int
-
-  for true {
-    if tokenIndex == len(tokens) {
-      break
-    }
-
-    current_token := tokens[tokenIndex]
-
-    fmt.println("current_token = ", current_token)
-
-    if current_token.infix_op == nil {
-      break
-    }
-
-    assert (current_token.infix_op != nil)
-
-    token_prec := current_token.infix_op.?.prec
-    token_assoc := current_token.infix_op.?.assoc
-
-    fmt.println(token_prec, token_assoc)
-
-    if token_prec < minPrec {
-      break
-    }
-
-    if token_assoc == OpAssoc.Left {
-      nextMinPrec = token_prec + 1
-    }
-    else {
-      nextMinPrec = token_prec
-    }
-
-    // parse rhs
-    nodeIndex, tokenIndex = parseInfix(tokens, nodeIndex, tokenIndex, tree_stack, nextMinPrec)
-  }
-  return nodeIndex, tokenIndex
-}
-
-parseApplication :: proc(tokens: ^#soa[dynamic]Token,
-                         parentNodeIndex: int,
-                         currentTokenIndex: int,
-                         tree_stack: ^#soa[dynamic]ParseNode) -> (int, int) {
-
-  appParentIndex : int
-  if len(tree_stack) > 0 {
-    appParentIndex = tree_stack[len(tree_stack)-1].parentIndex
-  }
-  else {
-    appParentIndex = -1
-  }
-
-  append(tree_stack, ParseNode{currentTokenIndex, NodeType.Application, appParentIndex})
-  currentTokenIndex := currentTokenIndex+1
-
-  assert (tokens[currentTokenIndex].token == "(")
-
-  currentTokenIndex += 1
-
-  currentNodeIndex := parentNodeIndex
-  for currentTokenIndex < len(tokens) && tokens[currentTokenIndex].token != ")" {
-    if (tokens[currentTokenIndex].token == ",") {
-      currentTokenIndex += 1
-    }
-    currentNodeIndex, currentTokenIndex = parse(tokens, parentNodeIndex, currentTokenIndex, tree_stack, ParserState.App)
-  }
-
-  assert (tokens[currentTokenIndex].token == ")")
-
-  return currentNodeIndex, currentTokenIndex+1
-}
-
-parse :: proc(tokens: ^#soa[dynamic]Token,
-              parentNodeIndex: int,
-              currentTokenIndex: int,
-              tree_stack: ^#soa[dynamic]ParseNode,
-              parserState: ParserState) -> (int, int) {
-
-  fmt.println("parse started, ", tokens, parentNodeIndex, currentTokenIndex)
-  // we map from parse node to token (injective function because there may be tokens that don't map back? or they could be sets of tokens)
-
-  assert (tokens[currentTokenIndex].token != ")")
-  if currentTokenIndex == len(tokens) {
-    return parentNodeIndex, currentTokenIndex
-  }
-
-  token: Token = tokens[currentTokenIndex]
-
-  switch token.type {
-    case TokenType.Number:
-      infixOp, infix_op_found := lookahead(tokens, currentTokenIndex, 1).?.infix_op.?
-
-      if (infix_op_found) {
-        fmt.println("Parsing an infix expression")
-        newParentNodeIndex, newCurrentTokenIndex := parseInfix(tokens, len(tree_stack), currentTokenIndex, tree_stack, 0)
-        return newParentNodeIndex, newCurrentTokenIndex
-      }
-
-      append(tree_stack, ParseNode{currentTokenIndex, NodeType.Number, parentNodeIndex})
-      return parentNodeIndex, currentTokenIndex+1
-
-    case TokenType.Ident:
-      leftParen, left_paren_found := lookahead(tokens, currentTokenIndex, 1, "(").?
-      infixOp, infix_op_found := lookahead(tokens, currentTokenIndex, 1).?.infix_op.?
-
-      if (left_paren_found) {
-        fmt.println("Parsing a function application!")
-
-        newParentNodeIndex, newCurrentTokenIndex := parseApplication(tokens, len(tree_stack), currentTokenIndex, tree_stack)
-        return newParentNodeIndex, newCurrentTokenIndex
-      }
-      if (infix_op_found && parserState != ParserState.Infix) { // stop parsing if an infix op is found but we're already parsing an infix expression
-        fmt.println("found an infix operator identifier")
-        return parentNodeIndex, currentTokenIndex
-      }
-      else {
-        append(tree_stack, ParseNode{currentTokenIndex, NodeType.Variable, parentNodeIndex})
-        return parentNodeIndex, currentTokenIndex+1
-      }
-
-    case TokenType.Paren:
-    case TokenType.Comma:
-  }
-  return parentNodeIndex, currentTokenIndex
-}
-
-
-
 is_operator :: proc(c : rune) -> bool {
   return (c == '*' ||
           c == '/' ||
@@ -213,9 +76,9 @@ op_prec :: proc(op_st : string) -> int {
   result: int
   switch op_st {
     case "*", "/":
-      result = 3
-    case "+", "-":
       result = 2
+    case "+", "-":
+      result = 1
   }
   return result
 }
@@ -311,20 +174,175 @@ tokenize :: proc(input_st: string, tokens: ^#soa[dynamic]Token) {
   }
 }
 
+// This will parse until it hits a terminal node
+// For top-level stuff we would iterate over all the top-level non-terminals
+// then recurse down to the terminal nodes the same way you would in regular RDP
+
+// This will also check if it is inside an infix expression and in that case
+// It will stop parsing once it hits an infix operator since if we are already
+// doing an infix parse, we only want to parse the lhs/rhs of the expression
+
+// another important fact is that it will push things on to the stack so
+// that they can be easily evaluated later, e.g. a + b => a b +, etc
+// just like in Forth
+
+// For an example of how infix parsing will work
+// f(a, g(b), c) + 134 * h
+// it would parse the lhs first (in the normal parser)
+// nodes for f(a, g(b), c) would get added to the stack and consumed
+// we would then hit the infix operator
+// start an infix parse and pass the current parser state in
+// it will assume the lhs has been parsed already
+// we cannot explicitly call this in the parseInfix function
+// since it would parse the lhs twice basically, and there is no way to pass sub-trees around
+// then we enter the infix parsing loop, and it does its thing with the precedence parsing
+// then parseInfix will be called recursively for the rhs
+// once it detects that the next token is not an infix op, it finishes
+
+// also evaluation order isn't really specified so it doesn't matter if it's a b + or b a +
+// they should return the same result
+// if f(a) + g(b) has some side-effects then that would be
+// impossible to predict which order they get evaluated in
+
+get_parse_node :: proc(parseState: ParseState, tokenOffset: int) -> ParseNode {
+  return ParseNode{parseState.tokenIndex-tokenOffset, parseState.nodeType, parseState.parentNodeIndex}
+}
+
+advance_parser :: proc(parserState: ParseState,
+                       nodeType: NodeType,
+                       nTokensAdvance: int,
+                       parentNodeIndex: int,
+                       newState: ParserStates) -> ParseState {
+  newParserState: ParseState = parserState
+  newParserState.tokenIndex += nTokensAdvance
+  newParserState.nodeType = nodeType
+  newParserState.tree_stack = parserState.tree_stack
+  newParserState.tokens = parserState.tokens
+  newParserState.state = newState
+
+  append(newParserState.tree_stack, get_parse_node(newParserState, nTokensAdvance))
+
+  assert ((newParserState.tokenIndex)-nTokensAdvance <= len(newParserState.tokens))
+  return newParserState
+}
+
+reset_node_type :: proc(parserState: ParseState, nodeType: NodeType) -> ParseState {
+  newParserState := parserState
+  newParserState.tree_stack[len(newParserState.tree_stack)-1].nodeType = nodeType
+  return newParserState
+}
+
+get_latest_token :: proc(parserState: ParseState) -> Maybe(Token) {
+  if (parserState.tokenIndex >= len(parserState.tokens)) {
+    return nil
+  }
+  return parserState.tokens[parserState.tokenIndex]
+}
+
+expect_token :: #force_inline proc(parserState: ParseState,
+                                   token_value: string,
+                                   lineno: int) {
+  if !(parserState.tokens[parserState.tokenIndex].token == token_value) {
+    fmt.panicf("Expected \"%s\" but actual token is \"%s\", line in parser = %d\n",
+               token_value,
+               parserState.tokens[parserState.tokenIndex].token,
+               lineno)
+  }
+}
+
+get_node_index :: proc(parserState: ParseState) -> int {
+  return len(parserState.tree_stack)-1
+}
+
+parseSepBy :: proc(parserState: ParseState, sep: string, end: string) -> ParseState {
+  fmt.println("Parsing sepby: sep =", sep, ", end =", end)
+  curParserState: ParseState = parserState
+
+  parentNodeIndex := len(parserState.tree_stack)-1
+
+  assert (curParserState.tokenIndex < len(curParserState.tokens))
+
+  for (curParserState.tokenIndex < len(curParserState.tokens) &&
+       curParserState.tokens[curParserState.tokenIndex].token != end) {
+    curParserState = parse(curParserState)
+
+    // Make sure the parent node index points to the node above this list of nodes
+    curParserState.parentNodeIndex = parentNodeIndex
+    if curParserState.tokens[curParserState.tokenIndex].token == end {
+      break
+    }
+
+    expect_token(curParserState, sep, #line)
+    curParserState.tokenIndex += 1
+  }
+  return curParserState
+}
+
+parseApplication :: proc(parserState: ParseState) -> ParseState {
+  fmt.println("Parsing application")
+  curParserState := parserState
+  expect_token(curParserState, "(", #line)
+  curParserState.tokenIndex += 1
+
+  assert (curParserState.tokenIndex < len(curParserState.tokens))
+
+  // Set the parent node index to the current application
+  curParserState.parentNodeIndex = len(curParserState.tree_stack)-1
+
+  curParserState = parseSepBy(curParserState, ",", ")")
+  expect_token(curParserState, ")", #line)
+  curParserState.tokenIndex += 1
+  return curParserState
+}
+
+parse :: proc(parserState: ParseState) -> ParseState {
+
+  assert (parserState.tokens[parserState.tokenIndex].token != ")")
+
+  if parserState.tokenIndex == len(parserState.tokens) {
+    fmt.println("we've consumed all tokens")
+    return parserState
+  }
+
+  newParserState: ParseState
+
+  token: Token = parserState.tokens[parserState.tokenIndex]
+
+  switch token.type {
+    case TokenType.Number:
+      fmt.println("number")
+      newParserState = advance_parser(parserState, NodeType.Number, 1, parserState.parentNodeIndex, ParserStates.Terminal)
+    case TokenType.Ident:
+      fmt.println("identifier")
+      newParserState = advance_parser(parserState, NodeType.Identifier, 1, parserState.parentNodeIndex, ParserStates.Terminal)
+      left_paren, tokens_ok := get_latest_token(newParserState).?
+      if tokens_ok && left_paren.token == "(" {
+        fmt.println("application")
+        newParserState = reset_node_type(newParserState, NodeType.Application)
+        newParserState = parseApplication(newParserState)
+      }
+    case TokenType.Paren:
+    case TokenType.Comma:
+  }
+  return newParserState
+}
+
 main :: proc() {
   //test_string_app: string = "foo(333*12,blarg,bar(1,2,3), aaaa, 4442, x(94, a), aad)"
-  test_string_infix: string = "1 + 2"
+  //test_string_infix: string = "1 + 2 * 4"
+  test_string: string = "a(1,2,b(5,6,h(4,22)),1123, h)"
   tokens: #soa[dynamic]Token
   tree_stack: #soa[dynamic]ParseNode
 
-  tokenize(test_string_infix, &tokens)
+  tokenize(test_string, &tokens)
 
   for tok in tokens {
     fmt.println(tok)
   }
-  nodeIndex, tokenIndex := parse(&tokens, -1, 0, &tree_stack, ParserState.NonTerminal)
 
-  assert (tokenIndex == len(tokens))
+  parseState := parse(ParseState{-1, NodeType.Root, 0, ParserStates.NonTerminal, &tokens, &tree_stack})
+
+  //assert (parseState.tokenIndex == len(tokens))
 
   for node in tree_stack {
     fmt.println(node)
