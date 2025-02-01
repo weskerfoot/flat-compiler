@@ -242,6 +242,7 @@ get_latest_token :: proc(parserState: ParseState) -> Maybe(Token) {
 expect_token :: #force_inline proc(parserState: ParseState,
                                    token_value: string,
                                    lineno: int) {
+  // TODO, include the line in the source code itself
   if !(parserState.tokens[parserState.tokenIndex].token == token_value) {
     fmt.panicf("Expected \"%s\" but actual token is \"%s\", line in parser = %d\n",
                token_value,
@@ -268,6 +269,11 @@ parse_sep_by :: proc(parserState: ParseState, sep: string, end: string) -> Parse
 
     // Make sure the parent node index points to the node above this list of nodes
     curParserState.parentNodeIndex = parentNodeIndex
+
+    if curParserState.tokenIndex >= len(curParserState.tokens) {
+      fmt.panicf("Unexpected end of source, are you missing a \"%s\" somewhere?", end)
+    }
+
     if curParserState.tokens[curParserState.tokenIndex].token == end {
       break
     }
@@ -322,6 +328,7 @@ parse :: proc(parserState: ParseState) -> ParseState {
         newParserState = parse_application(newParserState)
       }
     case TokenType.Paren:
+      fmt.panicf("Unexpected paren \"%s\"", token.token)
     case TokenType.Comma:
   }
   return newParserState
@@ -330,7 +337,7 @@ parse :: proc(parserState: ParseState) -> ParseState {
 main :: proc() {
   //test_string_app: string = "foo(333*12,blarg,bar(1,2,3), aaaa, 4442, x(94, a), aad)"
   //test_string_infix: string = "1 + 2 * 4"
-  test_string: string = "a(1,2,b(5,6,h(4,22)),1123, h)"
+  test_string: string = "a(1,2,b(5,6,h(4,22),1123, h))"
   tokens: #soa[dynamic]Token
   tree_stack: #soa[dynamic]ParseNode
 
