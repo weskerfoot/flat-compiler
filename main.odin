@@ -254,7 +254,7 @@ get_node_index :: proc(parserState: ParseState) -> int {
   return len(parserState.tree_stack)-1
 }
 
-parseSepBy :: proc(parserState: ParseState, sep: string, end: string) -> ParseState {
+parse_sep_by :: proc(parserState: ParseState, sep: string, end: string) -> ParseState {
   fmt.println("Parsing sepby: sep =", sep, ", end =", end)
   curParserState: ParseState = parserState
 
@@ -278,7 +278,7 @@ parseSepBy :: proc(parserState: ParseState, sep: string, end: string) -> ParseSt
   return curParserState
 }
 
-parseApplication :: proc(parserState: ParseState) -> ParseState {
+parse_application :: proc(parserState: ParseState) -> ParseState {
   fmt.println("Parsing application")
   curParserState := parserState
   expect_token(curParserState, "(", #line)
@@ -289,7 +289,7 @@ parseApplication :: proc(parserState: ParseState) -> ParseState {
   // Set the parent node index to the current application
   curParserState.parentNodeIndex = len(curParserState.tree_stack)-1
 
-  curParserState = parseSepBy(curParserState, ",", ")")
+  curParserState = parse_sep_by(curParserState, ",", ")")
   expect_token(curParserState, ")", #line)
   curParserState.tokenIndex += 1
   return curParserState
@@ -319,7 +319,7 @@ parse :: proc(parserState: ParseState) -> ParseState {
       if tokens_ok && left_paren.token == "(" {
         fmt.println("application")
         newParserState = reset_node_type(newParserState, NodeType.Application)
-        newParserState = parseApplication(newParserState)
+        newParserState = parse_application(newParserState)
       }
     case TokenType.Paren:
     case TokenType.Comma:
