@@ -239,9 +239,9 @@ get_latest_token :: proc(parserState: ParseState) -> Maybe(Token) {
   return parserState.tokens[parserState.tokenIndex]
 }
 
-expect_token :: #force_inline proc(parserState: ParseState,
-                                   token_value: string,
-                                   lineno: int) {
+expect_token_st :: #force_inline proc(parserState: ParseState,
+                                      token_value: string,
+                                      lineno: int) {
   // TODO, include the line in the source code itself
   if !(parserState.tokens[parserState.tokenIndex].token == token_value) {
     fmt.panicf("Expected \"%s\" but actual token is \"%s\", line in parser = %d\n",
@@ -250,6 +250,20 @@ expect_token :: #force_inline proc(parserState: ParseState,
                lineno)
   }
 }
+
+expect_token_type :: #force_inline proc(parserState: ParseState,
+                                        token_type: TokenType,
+                                        lineno: int) {
+  // TODO, include the line in the source code itself
+  if !(parserState.tokens[parserState.tokenIndex].type == token_type) {
+    fmt.panicf("Expected token of type \"%s\" but actual type is \"%s\", line in parser = %d\n",
+               token_type,
+               parserState.tokens[parserState.tokenIndex].type,
+               lineno)
+  }
+}
+
+expect_token :: proc{expect_token_type, expect_token_st}
 
 get_node_index :: proc(parserState: ParseState) -> int {
   return len(parserState.tree_stack)-1
@@ -281,6 +295,20 @@ parse_sep_by :: proc(parserState: ParseState, sep: string, end: string) -> Parse
     expect_token(curParserState, sep, #line)
     curParserState.tokenIndex += 1
   }
+  return curParserState
+}
+
+parse_infix :: proc(parserState: ParseState) -> ParseState {
+  fmt.println("Parsing infix application")
+  curParserState := parserState
+
+  // Each call to this begins with an infix operator to parse
+  expect_token(curParserState, TokenType.Ident, #line)
+  if !(curParserState.tokens[curParserState.tokenIndex].infix_op != nil) {
+    fmt.panicf("Expected an infix operator but got %s\n", curParserState.tokens[curParserState.tokenIndex].token)
+  }
+
+
   return curParserState
 }
 
