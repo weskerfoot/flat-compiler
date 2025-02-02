@@ -3,6 +3,7 @@ package main
 import "core:fmt"
 import "core:unicode"
 import "core:strconv"
+import "core:container/queue"
 
 OpAssoc :: enum{NoAssoc, Left, Right}
 
@@ -25,19 +26,18 @@ NodeType :: enum{Application, Identifier, Number, Root}
 
 ParseNode :: struct {
   tokenIndex: int,
-  nodeType: NodeType,
-  parentIndex: int
+  nodeType: NodeType
 }
 
 ParserStates :: enum{App, Infix, NonTerminal, Terminal}
 
 ParseState :: struct {
-  parentNodeIndex: int,
   nodeType: NodeType,
   tokenIndex: int,
   state: ParserStates,
   tokens: ^#soa[dynamic]Token,
-  tree_stack: ^#soa[dynamic]ParseNode,
+  node_queue: ^queue.Queue(ParseNode),
+  node_stack: ^queue.Queue(ParseNode),
 }
 
 lookahead_basic :: proc(tokens: ^#soa[dynamic]Token,
@@ -205,30 +205,37 @@ tokenize :: proc(input_st: string, tokens: ^#soa[dynamic]Token) {
 // impossible to predict which order they get evaluated in
 
 get_parse_node :: proc(parseState: ParseState, tokenOffset: int) -> ParseNode {
-  return ParseNode{parseState.tokenIndex-tokenOffset, parseState.nodeType, parseState.parentNodeIndex}
+  return ParseNode{parseState.tokenIndex-tokenOffset, parseState.nodeType}
 }
 
 advance_parser :: proc(parserState: ParseState,
                        nodeType: NodeType,
                        nTokensAdvance: int,
-                       parentNodeIndex: int,
                        newState: ParserStates) -> ParseState {
   newParserState: ParseState = parserState
   newParserState.tokenIndex += nTokensAdvance
   newParserState.nodeType = nodeType
-  newParserState.tree_stack = parserState.tree_stack
+  newParserState.node_queue = parserState.node_queue
+  newParserState.node_stack = parserState.node_stack
   newParserState.tokens = parserState.tokens
   newParserState.state = newState
 
-  append(newParserState.tree_stack, get_parse_node(newParserState, nTokensAdvance))
+  queue.push_front(newParserState.node_queue, get_parse_node(newParserState, nTokensAdvance))
 
   assert ((newParserState.tokenIndex)-nTokensAdvance <= len(newParserState.tokens))
   return newParserState
 }
 
+drain_stack :: proc(parseState: ParseState) -> ParseState {
+  for queue.len(parseState.node_stack^) > 0 {
+    queue.push_front(parseState.node_queue, queue.pop_back(parseState.node_stack))
+  }
+  return parseState
+}
+
 reset_node_type :: proc(parserState: ParseState, nodeType: NodeType) -> ParseState {
   newParserState := parserState
-  newParserState.tree_stack[len(newParserState.tree_stack)-1].nodeType = nodeType
+  queue.peek_front(newParserState.node_queue).nodeType = nodeType
   return newParserState
 }
 
@@ -266,23 +273,18 @@ expect_token_type :: #force_inline proc(parserState: ParseState,
 expect_token :: proc{expect_token_type, expect_token_st}
 
 get_node_index :: proc(parserState: ParseState) -> int {
-  return len(parserState.tree_stack)-1
+  return queue.len(parserState.node_stack^)-1
 }
 
 parse_sep_by :: proc(parserState: ParseState, sep: string, end: string) -> ParseState {
   fmt.println("Parsing sepby: sep =", sep, ", end =", end)
   curParserState: ParseState = parserState
 
-  parentNodeIndex := len(parserState.tree_stack)-1
-
   assert (curParserState.tokenIndex < len(curParserState.tokens))
 
   for (curParserState.tokenIndex < len(curParserState.tokens) &&
        curParserState.tokens[curParserState.tokenIndex].token != end) {
     curParserState = parse(curParserState)
-
-    // Make sure the parent node index points to the node above this list of nodes
-    curParserState.parentNodeIndex = parentNodeIndex
 
     if curParserState.tokenIndex >= len(curParserState.tokens) {
       fmt.panicf("Unexpected end of source, are you missing a \"%s\" somewhere?", end)
@@ -298,9 +300,14 @@ parse_sep_by :: proc(parserState: ParseState, sep: string, end: string) -> Parse
   return curParserState
 }
 
+/*
 parse_infix :: proc(parserState: ParseState) -> ParseState {
   fmt.println("Parsing infix application")
   curParserState := parserState
+
+  if curParserState.tokens[curParserState.tokenIndex].infix_op == nil {
+    return curParserState
+  }
 
   // Each call to this begins with an infix operator to parse
   expect_token(curParserState, TokenType.Ident, #line)
@@ -308,9 +315,18 @@ parse_infix :: proc(parserState: ParseState) -> ParseState {
     fmt.panicf("Expected an infix operator but got %s\n", curParserState.tokens[curParserState.tokenIndex].token)
   }
 
+  operator = curParserState.tokens[curParserState.tokenIndex]
+  nextMinPrec: int
+
+  for true {
+    token_prec := current_token.infix_op.?.prec
+    token_assoc := current_token.infix_op.?.assoc
+  }
+
 
   return curParserState
 }
+*/
 
 parse_application :: proc(parserState: ParseState) -> ParseState {
   fmt.println("Parsing application")
@@ -321,8 +337,6 @@ parse_application :: proc(parserState: ParseState) -> ParseState {
   assert (curParserState.tokenIndex < len(curParserState.tokens))
 
   // Set the parent node index to the current application
-  curParserState.parentNodeIndex = len(curParserState.tree_stack)-1
-
   curParserState = parse_sep_by(curParserState, ",", ")")
   expect_token(curParserState, ")", #line)
   curParserState.tokenIndex += 1
@@ -345,15 +359,23 @@ parse :: proc(parserState: ParseState) -> ParseState {
   switch token.type {
     case TokenType.Number:
       fmt.println("number")
-      newParserState = advance_parser(parserState, NodeType.Number, 1, parserState.parentNodeIndex, ParserStates.Terminal)
+      newParserState = advance_parser(parserState, NodeType.Number, 1, ParserStates.Terminal)
     case TokenType.Ident:
       fmt.println("identifier")
-      newParserState = advance_parser(parserState, NodeType.Identifier, 1, parserState.parentNodeIndex, ParserStates.Terminal)
-      left_paren, tokens_ok := get_latest_token(newParserState).?
-      if tokens_ok && left_paren.token == "(" {
-        fmt.println("application")
-        newParserState = reset_node_type(newParserState, NodeType.Application)
-        newParserState = parse_application(newParserState)
+      if token.infix_op != nil {
+        // The identifier represents an infix operator, so this is an infix expression
+        fmt.println("infix application")
+      }
+      else {
+        // Consume the identifier token
+        newParserState = advance_parser(parserState, NodeType.Identifier, 1, ParserStates.Terminal)
+        // Check if it's a left paren, then it's a function application
+        left_paren, tokens_ok := get_latest_token(newParserState).?
+        if tokens_ok && left_paren.token == "(" {
+          fmt.println("application")
+          newParserState = reset_node_type(newParserState, NodeType.Application)
+          newParserState = parse_application(newParserState)
+        }
       }
     case TokenType.Paren:
       fmt.panicf("Unexpected paren \"%s\"", token.token)
@@ -365,9 +387,11 @@ parse :: proc(parserState: ParseState) -> ParseState {
 main :: proc() {
   //test_string_app: string = "foo(333*12,blarg,bar(1,2,3), aaaa, 4442, x(94, a), aad)"
   //test_string_infix: string = "1 + 2 * 4"
-  test_string: string = "a(1,2,b(5,6,h(4,22),1123, h))"
+  //test_string: string = "a(1,2,b(5,6,h(4,22),1123, h))"
+  test_string: string = "a(1,44,g(a, 2))"
   tokens: #soa[dynamic]Token
-  tree_stack: #soa[dynamic]ParseNode
+  node_stack: queue.Queue(ParseNode)
+  node_queue: queue.Queue(ParseNode)
 
   tokenize(test_string, &tokens)
 
@@ -375,11 +399,11 @@ main :: proc() {
     fmt.println(tok)
   }
 
-  parseState := parse(ParseState{-1, NodeType.Root, 0, ParserStates.NonTerminal, &tokens, &tree_stack})
+  parseState := parse(ParseState{NodeType.Root, 0, ParserStates.NonTerminal, &tokens, &node_queue, &node_stack})
 
   //assert (parseState.tokenIndex == len(tokens))
 
-  for node in tree_stack {
-    fmt.println(node)
+  for queue.len(node_queue) > 0 {
+    fmt.println(queue.pop_front(&node_queue))
   }
 }
