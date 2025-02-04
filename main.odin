@@ -77,10 +77,10 @@ is_operator :: proc(c : rune) -> bool {
 op_prec :: proc(op_st : string) -> int {
   result: int
   switch op_st {
-    case "*", "/":
-      result = 2
     case "+", "-":
       result = 1
+    case "*", "/":
+      result = 2
     case "^":
       result = 3
   }
@@ -308,17 +308,12 @@ parse_sep_by :: proc(parserState: ParseState, sep: string, end: string) -> Parse
 }
 
 parse_infix :: proc(parserState: ParseState, minPrec: int) -> ParseState {
-  // need a thing checking if we are already parsing an infix expression
-  // then if we already are, i.e. this was called recursively, parse the LHS ?
-  // otherwise assume it was already parsed
-
   fmt.println(parserState.tokens[parserState.tokenIndex:])
   assert (parserState.tokenIndex < len(parserState.tokens))
   curParserState: ParseState
 
   // If we just started parsing the infix expr, assume the lhs has already been parsed
   if !parserState.parsingInfix {
-    fmt.println("first call to parse_infix")
     curParserState = parserState
     expect_token(curParserState, TokenType.InfixOp, #line)
   }
@@ -328,8 +323,6 @@ parse_infix :: proc(parserState: ParseState, minPrec: int) -> ParseState {
     curParserState = parse(parserState)
   }
   curParserState.parsingInfix = true
-
-  fmt.println("in parse_infix and there was an infix op")
 
   for true {
     if curParserState.tokenIndex >= len(curParserState.tokens) {
@@ -362,7 +355,6 @@ parse_infix :: proc(parserState: ParseState, minPrec: int) -> ParseState {
     infix_op := get_parse_node(curParserState, 0)
 
     curParserState.tokenIndex += 1
-    fmt.println("incremented token that was operator")
 
     assert (curParserState.tokens[curParserState.tokenIndex].type != TokenType.InfixOp)
 
@@ -409,6 +401,8 @@ parse :: proc(parserState: ParseState) -> ParseState {
       newParserState = advance_parser(parserState, NodeType.Number, 1, ParserStates.Terminal)
       return parse(newParserState)
     case TokenType.InfixOp:
+      // pretty sure this will fail on e.g. 1 + f(a, 4 * 3) * 21 because it will be in infix state when it
+      // parses the second argument to f, so when it encounters f it has to reset it to false
       if parserState.parsingInfix {
         // If we are already parsing an infix expression and this is an infix operator, simply return
         // the parse_infix function will handle consuming the next token
@@ -435,6 +429,7 @@ parse :: proc(parserState: ParseState) -> ParseState {
       }
       return parse(newParserState)
     case TokenType.Paren:
+      // TODO, make this start a new infix parse if it's an infix expression with parens around it
       fmt.panicf("Unexpected paren \"%s\"", token.token)
     case TokenType.Comma:
   }
@@ -443,7 +438,7 @@ parse :: proc(parserState: ParseState) -> ParseState {
 
 main :: proc() {
   //test_string_app: string = "foo(333*12,blarg,bar(1,2,3), aaaa, 4442, x(94, a), aad)"
-  test_string: string = "1 + f(a) / 14 - 4 * 99 / 4"
+  test_string: string = "1 + 111 / 2 - 4 * 99 / 4"
   //test_string: string = "a(1,2,b(5,6,h(4,22),1123, h))"
   //test_string: string = "a(1,44,g(a, 2))"
   tokens: #soa[dynamic]Token
