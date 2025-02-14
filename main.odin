@@ -178,36 +178,6 @@ tokenize :: proc(input_st: string, tokens: ^#soa[dynamic]Token) {
   }
 }
 
-// This will parse until it hits a terminal node
-// For top-level stuff we would iterate over all the top-level non-terminals
-// then recurse down to the terminal nodes the same way you would in regular RDP
-
-// This will also check if it is inside an infix expression and in that case
-// It will stop parsing once it hits an infix operator since if we are already
-// doing an infix parse, we only want to parse the lhs/rhs of the expression
-
-// another important fact is that it will push things on to the stack so
-// that they can be easily evaluated later, e.g. a + b => a b +, etc
-// just like in Forth
-
-// For an example of how infix parsing will work
-// f(a, g(b), c) + 134 * h
-// it would parse the lhs first (in the normal parser)
-// nodes for f(a, g(b), c) would get added to the stack and consumed
-// we would then hit the infix operator
-// start an infix parse and pass the current parser state in
-// it will assume the lhs has been parsed already
-// we cannot explicitly call this in the parseInfix function
-// since it would parse the lhs twice basically, and there is no way to pass sub-trees around
-// then we enter the infix parsing loop, and it does its thing with the precedence parsing
-// then parseInfix will be called recursively for the rhs
-// once it detects that the next token is not an infix op, it finishes
-
-// also evaluation order isn't really specified so it doesn't matter if it's a b + or b a +
-// they should return the same result
-// if f(a) + g(b) has some side-effects then that would be
-// impossible to predict which order they get evaluated in
-
 get_parse_node :: proc(parseState: ParseState, tokenOffset: int) -> ParseNode {
   return ParseNode{parseState.tokenIndex-tokenOffset, parseState.nodeType}
 }
@@ -430,6 +400,12 @@ parse_infix :: proc(parserState: ParseState, minPrec: int) -> ParseState {
 parse_application :: proc(parserState: ParseState) -> ParseState {
   fmt.println("Parsing application")
   curParserState := parserState
+
+  expect_token(curParserState, TokenType.Ident, #line)
+
+  func_name := get_parse_node(curParserState, 0)
+  curParserState = skip_tokens(curParserState, 1)
+
   expect_token(curParserState, "(", #line)
   curParserState.tokenIndex += 1
 
@@ -439,6 +415,7 @@ parse_application :: proc(parserState: ParseState) -> ParseState {
   curParserState = parse_sep_by(curParserState, ",", ")")
   expect_token(curParserState, ")", #line)
   curParserState.tokenIndex += 1
+  queue.push_back(curParserState.node_queue, func_name)
   return curParserState
 }
 
@@ -449,7 +426,7 @@ parse :: proc(parserState: ParseState) -> ParseState {
     return parserState
   }
 
-  newParserState: ParseState
+  newParserState: ParseState = parserState
 
   token: Token = parserState.tokens[parserState.tokenIndex]
 
@@ -475,11 +452,10 @@ parse :: proc(parserState: ParseState) -> ParseState {
     case TokenType.Ident:
       fmt.println("identifier")
 
-      // Consume the identifier token
-      newParserState = advance_parser(parserState, NodeType.Identifier, 1, ParserStates.Terminal)
-
       // Check if it's a left paren, then it's a function application
+      // Need to check the *next token*
       left_paren, tokens_ok := get_latest_token(newParserState).?
+
       if tokens_ok && left_paren.token == "(" {
         fmt.println("application")
         newParserState = reset_node_type(newParserState, NodeType.Application)
@@ -519,7 +495,8 @@ parse :: proc(parserState: ParseState) -> ParseState {
 main :: proc() {
   //test_string_app: string = "foo(333*12,blarg,bar(1,2,3), aaaa, 4442, x(94, a), aad)"
   //test_string: string = "1 + 111 / 2 - 4 * 99 / 4"
-  test_string: string = "1 + 2 * (3 / 4)"
+  //test_string: string = "1 * 2 + 12 * (3 / 4) - 14"
+  test_string: string = "f(a,b) + 12"
   tokens: #soa[dynamic]Token
   node_stack: queue.Queue(ParseNode)
   node_queue: queue.Queue(ParseNode)
