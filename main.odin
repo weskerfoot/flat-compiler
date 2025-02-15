@@ -66,7 +66,7 @@ lookahead_with_tokvalue :: proc(tokens: ^#soa[dynamic]Token,
 
 lookahead :: proc{lookahead_with_tokvalue, lookahead_basic}
 
-is_operator :: proc(c : rune) -> bool {
+is_operator_char :: proc(c : rune) -> bool {
   return (c == '*' ||
           c == '/' ||
           c == '+' ||
@@ -102,14 +102,14 @@ op_assoc :: proc(op_st : string) -> OpAssoc {
 }
 
 get_op :: proc(op_st : string) -> Maybe(InfixOperator) {
-  if !is_operator(cast(rune)op_st[0]) {
+  if !is_operator_char(cast(rune)op_st[0]) {
     return nil
   }
   return InfixOperator{op_prec(op_st), op_assoc(op_st)}
 }
 
 is_identifier_char :: proc(c : rune) -> bool {
-  return !is_operator(c) && !unicode.is_number(c) && !unicode.is_space(c) && c != '(' && c != ')'
+  return !is_operator_char(c) && !unicode.is_number(c) && !unicode.is_space(c) && c != '(' && c != ')'
 }
 
 is_whitespace :: proc(c: rune) -> bool {
@@ -143,25 +143,19 @@ tokenize :: proc(input_st: string, tokens: ^#soa[dynamic]Token) {
       append(tokens, Token{string(input_st[current_tok_start:current_tok_end]), current_tok_type, nil})
     }
 
-    if is_operator(c) {
-      fmt.println("got operator token, ", c)
+    if is_operator_char(c) {
       current_tok_type = TokenType.InfixOp
+
       for current_tok_end < len(input_st) {
-        next_letter := rune(input_st[current_tok_end])
-
-        current_tok_end += 1
-
-        if current_tok_end >= len(input_st) || !is_identifier_char(next_letter) {
+        next_char := rune(input_st[current_tok_end])
+        if current_tok_end > len(input_st) || !is_operator_char(next_char) {
           break
         }
+        current_tok_end += 1
       }
-
-      op_tok_st: string = string(input_st[current_tok_start:current_tok_end-1])
-
-      op_info := get_op(op_tok_st)
-      current_tok_end -= 1
-
-      append(tokens, Token{op_tok_st, current_tok_type, op_info})
+      op_tok_str := string(input_st[current_tok_start:current_tok_end])
+      op_info := get_op(op_tok_str)
+      append(tokens, Token{op_tok_str, current_tok_type, op_info})
     }
 
     if is_identifier_char(c) {
@@ -502,12 +496,11 @@ parse :: proc(parserState: ParseState) -> ParseState {
 }
 
 main :: proc() {
-  //test_string_app: string = "foo(333*12,blarg,bar(1,2,3), aaaa, 4442, x(94, a), aad)"
+  //test_string: string = "foo(333*12,blarg,bar(1,2,3), aaaa, 4442, x(94, a), aad)"
   //test_string: string = "1 + 111 / 2 - 4 * 99 / 4"
   test_string: string = "1 * 2 + 12 * cos((3 / 4) - 14)"
   //test_string: string = "cos(12 + 4) a(1,2)"
   //test_string: string = "sin(14 + 12) * cos(2 - 3)"
-  //test_string: string = "a,b"
   tokens: #soa[dynamic]Token
   node_stack: queue.Queue(ParseNode)
   node_queue: queue.Queue(ParseNode)
