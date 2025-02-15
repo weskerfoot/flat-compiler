@@ -404,6 +404,7 @@ parse_application :: proc(parserState: ParseState) -> ParseState {
   expect_token(curParserState, TokenType.Ident, #line)
 
   func_name := get_parse_node(curParserState, 0)
+  fmt.println(func_name)
   curParserState = skip_tokens(curParserState, 1)
 
   expect_token(curParserState, "(", #line)
@@ -454,12 +455,16 @@ parse :: proc(parserState: ParseState) -> ParseState {
 
       // Check if it's a left paren, then it's a function application
       // Need to check the *next token*
-      left_paren, tokens_ok := get_latest_token(newParserState).?
+      left_paren, tokens_ok := lookahead(newParserState.tokens, newParserState.tokenIndex, 1).?
+
+      fmt.println(left_paren)
 
       if tokens_ok && left_paren.token == "(" {
         fmt.println("application")
-        newParserState = reset_node_type(newParserState, NodeType.Application)
         newParserState = parse_application(newParserState)
+      }
+      else {
+        newParserState = advance_parser(parserState, NodeType.Identifier, 1, ParserStates.Terminal)
       }
 
       return parse(newParserState)
@@ -496,7 +501,7 @@ main :: proc() {
   //test_string_app: string = "foo(333*12,blarg,bar(1,2,3), aaaa, 4442, x(94, a), aad)"
   //test_string: string = "1 + 111 / 2 - 4 * 99 / 4"
   //test_string: string = "1 * 2 + 12 * (3 / 4) - 14"
-  test_string: string = "f(a,b) + 12"
+  test_string: string = "sin(14 + 12)"
   tokens: #soa[dynamic]Token
   node_stack: queue.Queue(ParseNode)
   node_queue: queue.Queue(ParseNode)
