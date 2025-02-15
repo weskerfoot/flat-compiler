@@ -19,7 +19,7 @@ Token :: struct {
   infix_op: Maybe(InfixOperator)
 }
 
-TokenType :: enum{Number, Ident, InfixOp, Paren, Comma}
+TokenType :: enum{Number, Ident, InfixOp, Paren}
 
 // TODO add distinction between Variable, TypeName, and FunctionName instead of just Identifier
 NodeType :: enum{Application, Identifier, Number, Root, InfixOp}
@@ -71,6 +71,7 @@ is_operator :: proc(c : rune) -> bool {
           c == '/' ||
           c == '+' ||
           c == '-' ||
+          c == ',' ||
           c == '^')
 }
 
@@ -83,6 +84,8 @@ op_prec :: proc(op_st : string) -> int {
       result = 2
     case "^":
       result = 3
+    case ",":
+      result = 4
   }
   return result
 }
@@ -90,7 +93,7 @@ op_prec :: proc(op_st : string) -> int {
 op_assoc :: proc(op_st : string) -> OpAssoc {
   result: OpAssoc
   switch op_st {
-    case "*", "/", "+", "-":
+    case "*", "/", "+", "-", ",":
       result = OpAssoc.Left
     case "^":
       result = OpAssoc.Right
@@ -106,7 +109,11 @@ get_op :: proc(op_st : string) -> Maybe(InfixOperator) {
 }
 
 is_identifier_char :: proc(c : rune) -> bool {
-  return !is_operator(c) && !unicode.is_number(c) && !unicode.is_space(c) && c != '(' && c != ')' && c != ','
+  return !is_operator(c) && !unicode.is_number(c) && !unicode.is_space(c) && c != '(' && c != ')'
+}
+
+is_whitespace :: proc(c: rune) -> bool {
+  return unicode.is_space(c)
 }
 
 tokenize :: proc(input_st: string, tokens: ^#soa[dynamic]Token) {
@@ -123,11 +130,6 @@ tokenize :: proc(input_st: string, tokens: ^#soa[dynamic]Token) {
       append(tokens, Token{string(input_st[current_tok_start:current_tok_end]), current_tok_type, nil})
     }
 
-    if c == ',' {
-      current_tok_type = TokenType.Comma
-      append(tokens, Token{string(input_st[current_tok_start:current_tok_end]), current_tok_type, nil})
-    }
-
     if unicode.is_number(c) {
       current_tok_type = TokenType.Number
 
@@ -141,36 +143,40 @@ tokenize :: proc(input_st: string, tokens: ^#soa[dynamic]Token) {
       append(tokens, Token{string(input_st[current_tok_start:current_tok_end]), current_tok_type, nil})
     }
 
+    if is_operator(c) {
+      fmt.println("got operator token, ", c)
+      current_tok_type = TokenType.InfixOp
+      for current_tok_end < len(input_st) {
+        next_letter := rune(input_st[current_tok_end])
+
+        current_tok_end += 1
+
+        if current_tok_end >= len(input_st) || !is_identifier_char(next_letter) {
+          break
+        }
+      }
+
+      op_tok_st: string = string(input_st[current_tok_start:current_tok_end-1])
+
+      op_info := get_op(op_tok_st)
+      current_tok_end -= 1
+
+      append(tokens, Token{op_tok_st, current_tok_type, op_info})
+    }
+
     if is_identifier_char(c) {
       current_tok_type = TokenType.Ident
       for current_tok_end < len(input_st) {
         next_letter := rune(input_st[current_tok_end])
 
         if current_tok_end >= len(input_st) || !is_identifier_char(next_letter) {
+          fmt.println("breaking end of identifier with character ", next_letter)
           break
         }
         current_tok_end += 1
       }
 
       append(tokens, Token{string(input_st[current_tok_start:current_tok_end]), current_tok_type, nil})
-    }
-
-    if is_operator(c) {
-      current_tok_type = TokenType.InfixOp
-      for current_tok_end < len(input_st) {
-        next_letter := rune(input_st[current_tok_end])
-
-        if current_tok_end >= len(input_st) || !is_identifier_char(next_letter) {
-          break
-        }
-        current_tok_end += 1
-      }
-
-      op_tok_st: string = string(input_st[current_tok_start:current_tok_end])
-
-      op_info := get_op(op_tok_st)
-
-      append(tokens, Token{op_tok_st, current_tok_type, op_info})
     }
 
     current_tok_start = current_tok_end
@@ -327,6 +333,10 @@ parse_sep_by :: proc(parserState: ParseState, sep: string, end: string) -> Parse
 }
 
 parse_infix :: proc(parserState: ParseState, minPrec: int) -> ParseState {
+  if parserState.tokenIndex >= len(parserState.tokens) {
+    return parserState
+  }
+
   fmt.println(parserState.tokens[parserState.tokenIndex:])
   assert (parserState.tokenIndex < len(parserState.tokens))
   curParserState: ParseState
@@ -355,7 +365,7 @@ parse_infix :: proc(parserState: ParseState, minPrec: int) -> ParseState {
 
     cur_token: Token = curParserState.tokens[curParserState.tokenIndex]
     if cur_token.type != TokenType.InfixOp || cur_token.infix_op.?.prec < minPrec {
-      fmt.println("breaking because the current operator has prec < minPrec, ", cur_token, minPrec)
+      fmt.println("breaking because the either we encountered no infix op, or current operator has prec < minPrec, ", cur_token, minPrec)
       break
     }
 
@@ -406,18 +416,13 @@ parse_application :: proc(parserState: ParseState) -> ParseState {
   func_name := get_parse_node(curParserState, 0)
   fmt.println(func_name)
   curParserState = skip_tokens(curParserState, 1)
+  curParserState.parsingInfix = true // TODO check for comma separated list
 
-  expect_token(curParserState, "(", #line)
-  curParserState.tokenIndex += 1
-
-  assert (curParserState.tokenIndex < len(curParserState.tokens))
-
-  // Set the parent node index to the current application
-  curParserState = parse_sep_by(curParserState, ",", ")")
-  expect_token(curParserState, ")", #line)
-  curParserState.tokenIndex += 1
+  curParserState = parse(curParserState)
   queue.push_back(curParserState.node_queue, func_name)
-  return curParserState
+
+  // If this is not an infix expression it will just continue parsing normally
+  return parse_infix(curParserState, 1)
 }
 
 parse :: proc(parserState: ParseState) -> ParseState {
@@ -462,6 +467,7 @@ parse :: proc(parserState: ParseState) -> ParseState {
       if tokens_ok && left_paren.token == "(" {
         fmt.println("application")
         newParserState = parse_application(newParserState)
+        fmt.println("done parsing application")
       }
       else {
         newParserState = advance_parser(parserState, NodeType.Identifier, 1, ParserStates.Terminal)
@@ -491,8 +497,6 @@ parse :: proc(parserState: ParseState) -> ParseState {
         newParserState.parsingInfix = true
         return parse_infix(newParserState, 1)
       }
-
-    case TokenType.Comma:
   }
   return newParserState
 }
@@ -500,8 +504,10 @@ parse :: proc(parserState: ParseState) -> ParseState {
 main :: proc() {
   //test_string_app: string = "foo(333*12,blarg,bar(1,2,3), aaaa, 4442, x(94, a), aad)"
   //test_string: string = "1 + 111 / 2 - 4 * 99 / 4"
-  //test_string: string = "1 * 2 + 12 * (3 / 4) - 14"
-  test_string: string = "sin(14 + 12)"
+  test_string: string = "1 * 2 + 12 * cos((3 / 4) - 14)"
+  //test_string: string = "cos(12 + 4) a(1,2)"
+  //test_string: string = "sin(14 + 12) * cos(2 - 3)"
+  //test_string: string = "a,b"
   tokens: #soa[dynamic]Token
   node_stack: queue.Queue(ParseNode)
   node_queue: queue.Queue(ParseNode)
