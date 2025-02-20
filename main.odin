@@ -495,10 +495,19 @@ parse :: proc(parserState: ParseState) -> ParseState {
   return newParserState
 }
 
+print_tokens_as_rpn :: proc(node_queue: ^queue.Queue(ParseNode),
+                            parseState: ParseState) {
+  for queue.len(node_queue^) > 0 {
+    node := queue.pop_front(node_queue)
+    fmt.printf("%s ", parseState.tokens[node.tokenIndex].token)
+  }
+  fmt.println("")
+}
+
 main :: proc() {
   //test_string: string = "foo(333*12,blarg,bar(1,2,3), aaaa, 4442, x(94, a), aad)"
-  //test_string: string = "1 + 111 / 2 - 4 * 99 / 4"
-  test_string: string = "1 * 2 + 12 * cos((3 / 4) - 14)"
+  test_string: string = "1 + 111 / (2 - (4 + 5)) * (99 / 4)"
+  //test_string: string = "1 * 2 + 12 * cos((3 / 4) - 14)"
   //test_string: string = "cos(12 + 4) a(1,2)"
   //test_string: string = "sin(14 + 12) * cos(2 - 3)"
   tokens: #soa[dynamic]Token
@@ -515,14 +524,6 @@ main :: proc() {
 
   parseState := parse(ParseState{NodeType.Root, 0, ParserStates.NonTerminal, false, &tokens, &node_queue, &node_stack})
 
-  fmt.println("tokens at end")
-  for tok in tokens[parseState.tokenIndex:] {
-    fmt.println(tok)
-  }
-  fmt.println("=============")
-
-  for queue.len(node_queue) > 0 {
-    node := queue.pop_front(&node_queue)
-    fmt.println(tokens[node.tokenIndex])
-  }
+  fmt.println(test_string)
+  print_tokens_as_rpn(&node_queue, parseState)
 }
