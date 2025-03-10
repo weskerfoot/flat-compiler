@@ -68,7 +68,7 @@ lookahead :: proc{lookahead_with_tokvalue, lookahead_basic}
 
 check_operator :: proc(st: string) -> Maybe(int) {
   // Returns the number of tokens to seek ahead or nil
-  switch string(st[0:2]) {
+  switch st[0:2] {
     case ":=":
       return 2
   }
@@ -140,16 +140,16 @@ tokenize :: proc(input_st: string, tokens: ^#soa[dynamic]Token) {
 
   for current_tok_start < len(input_st) {
     c := rune(input_st[current_tok_start])
-    fmt.println("current c: ", c)
+    //fmt.println("current c: ", c)
 
     if c == '(' || c == ')' {
       current_tok_type = TokenType.Paren
-      append(tokens, Token{string(input_st[current_tok_start:current_tok_end]), current_tok_type, nil})
+      append(tokens, Token{input_st[current_tok_start:current_tok_end], current_tok_type, nil})
     }
 
     if c == ';' {
       current_tok_type = TokenType.SemiColon
-      append(tokens, Token{string(input_st[current_tok_start:current_tok_end]), current_tok_type, nil})
+      append(tokens, Token{input_st[current_tok_start:current_tok_end], current_tok_type, nil})
     }
 
     if unicode.is_number(c) {
@@ -162,7 +162,7 @@ tokenize :: proc(input_st: string, tokens: ^#soa[dynamic]Token) {
         }
         current_tok_end += 1
       }
-      append(tokens, Token{string(input_st[current_tok_start:current_tok_end]), current_tok_type, nil})
+      append(tokens, Token{input_st[current_tok_start:current_tok_end], current_tok_type, nil})
     }
 
     if is_operator_char(c) {
@@ -182,13 +182,13 @@ tokenize :: proc(input_st: string, tokens: ^#soa[dynamic]Token) {
         next_letter := rune(input_st[current_tok_end])
 
         if current_tok_end >= len(input_st) || !is_identifier_char(next_letter) {
-          fmt.println("breaking end of identifier with character ", next_letter)
+          //fmt.println("breaking end of identifier with character ", next_letter)
           break
         }
         current_tok_end += 1
       }
 
-      append(tokens, Token{string(input_st[current_tok_start:current_tok_end]), current_tok_type, nil})
+      append(tokens, Token{input_st[current_tok_start:current_tok_end], current_tok_type, nil})
     }
 
     current_tok_start = current_tok_end
@@ -321,7 +321,7 @@ get_node_index :: proc(parserState: ParseState) -> int {
 }
 
 parse_sep_by :: proc(parserState: ParseState, sep: string) -> ParseState {
-  fmt.println("Parsing sepby: sep =", sep)
+  //fmt.println("Parsing sepby: sep =", sep)
   curParserState: ParseState = parserState
 
   assert (curParserState.tokenIndex < len(curParserState.tokens), "Should never seek beyond tokens length")
@@ -345,7 +345,7 @@ parse_infix :: proc(parserState: ParseState, minPrec: int) -> ParseState {
     return parserState
   }
 
-  fmt.println(parserState.tokens[parserState.tokenIndex:])
+  //fmt.println(parserState.tokens[parserState.tokenIndex:])
   assert (parserState.tokenIndex < len(parserState.tokens), "Should never seek beyond tokens length")
   curParserState: ParseState
 
@@ -360,25 +360,25 @@ parse_infix :: proc(parserState: ParseState, minPrec: int) -> ParseState {
   }
   else {
     // otherwise parse it, and it will stop once it hits an infix op
-    fmt.println("parsing lhs")
+    //fmt.println("parsing lhs")
     curParserState = parse(parserState)
   }
   curParserState.parsingInfix = true
 
   for true {
     if curParserState.tokenIndex >= len(curParserState.tokens) {
-      fmt.println("breaking because we consumed all tokens")
+      //fmt.println("breaking because we consumed all tokens")
       break
     }
 
     cur_token: Token = curParserState.tokens[curParserState.tokenIndex]
     if cur_token.type != TokenType.InfixOp || cur_token.infix_op.?.prec < minPrec {
-      fmt.println("breaking because the either we encountered no infix op, or current operator has prec < minPrec, ", cur_token, minPrec)
+      //fmt.println("breaking because the either we encountered no infix op, or current operator has prec < minPrec, ", cur_token, minPrec)
       break
     }
 
     if cur_token.token == ")" {
-      fmt.println("found a right paren so breaking")
+      //fmt.println("found a right paren so breaking")
       curParserState = skip_tokens(curParserState, 1)
       curParserState.parsingInfix = false
       break
@@ -389,7 +389,7 @@ parse_infix :: proc(parserState: ParseState, minPrec: int) -> ParseState {
     prec := cur_token.infix_op.?.prec
     assoc := cur_token.infix_op.?.assoc
 
-    fmt.println(prec, assoc, cur_token.token)
+    //fmt.println(prec, assoc, cur_token.token)
 
     nextMinPrec: int
     if assoc == OpAssoc.Left {
@@ -416,13 +416,13 @@ parse_infix :: proc(parserState: ParseState, minPrec: int) -> ParseState {
 }
 
 parse_application :: proc(parserState: ParseState) -> ParseState {
-  fmt.println("Parsing application")
+  //fmt.println("Parsing application")
   curParserState := parserState
 
   expect_token(curParserState, TokenType.Ident, #line)
 
   func_name := get_parse_node(curParserState, 0)
-  fmt.println(func_name)
+  //fmt.println(func_name)
   curParserState = skip_tokens(curParserState, 1)
   curParserState.parsingInfix = true // TODO check for comma separated list
 
@@ -436,7 +436,7 @@ parse_application :: proc(parserState: ParseState) -> ParseState {
 parse :: proc(parserState: ParseState) -> ParseState {
 
   if parserState.tokenIndex >= len(parserState.tokens) {
-    fmt.println("we've consumed all tokens")
+    //fmt.println("we've consumed all tokens")
     return parserState
   }
 
@@ -446,36 +446,36 @@ parse :: proc(parserState: ParseState) -> ParseState {
 
   switch token.type {
     case TokenType.Number:
-      fmt.println("number")
+      //fmt.println("number")
       newParserState = advance_parser(parserState, NodeType.Number, 1, ParserStates.Terminal)
       return parse(newParserState)
     case TokenType.InfixOp:
       if parserState.parsingInfix {
         // If we are already parsing an infix expression and this is an infix operator, simply return
         // the parse_infix function will handle consuming the next token
-        fmt.println("in parse and there was an infix op and we were already parsing infix")
+        //fmt.println("in parse and there was an infix op and we were already parsing infix")
         return parserState
       }
       else {
         // The identifier represents an infix operator, so this is an infix expression
         // and since we're not already parsing an infix expression, kick off the infix parser
-        fmt.println("infix application")
+        //fmt.println("infix application")
         newParserState = parse_infix(parserState, 1)
         return newParserState
       }
     case TokenType.Ident:
-      fmt.println("identifier")
+      //fmt.println("identifier")
 
       // Check if it's a left paren, then it's a function application
       // Need to check the *next token*
       left_paren, tokens_ok := lookahead(newParserState.tokens, newParserState.tokenIndex, 1).?
 
-      fmt.println(left_paren)
+      //fmt.println(left_paren)
 
       if tokens_ok && left_paren.token == "(" {
-        fmt.println("application")
+        //fmt.println("application")
         newParserState = parse_application(newParserState)
-        fmt.println("done parsing application")
+        //fmt.println("done parsing application")
       }
       else {
         newParserState = advance_parser(parserState, NodeType.Identifier, 1, ParserStates.Terminal)
@@ -490,7 +490,7 @@ parse :: proc(parserState: ParseState) -> ParseState {
         // TODO, test to see what happens if this isn't actually an infix expression
         // what should it do in that case? let parse_infix parse the lhs then just return?
         // that should work reliably
-        fmt.println("Starting a new parenthesized infix parse")
+        //fmt.println("Starting a new parenthesized infix parse")
         expect_token(parserState, "(", #line)
         newParserState = parserState
         newParserState = skip_tokens(parserState, 1)
@@ -520,13 +520,18 @@ print_tokens_as_rpn :: proc(node_queue: ^queue.Queue(ParseNode),
   fmt.println("")
 }
 
+//interp :: proc(node_queue: ^queue.Queue(ParseNode),
+               //parseState: ParseState) {
+  //value_stack: queue.Queue(
+//}
+
 main :: proc() {
-  //test_string: string = "foo(333*12,blarg,bar(1,2,3), aaaa, 4442, x(94, a), aad)"
+  test_string: string = "foo(333*12,blarg,bar(1,2,3), aaaa, 4442, x(94, a), aad)"
   //test_string: string = "a = 1 + 111 / (2 - (4 +5)) *(99/ 4)"
   //test_string: string = "a := 1 + 23 + 2 * 3"
   //test_string: string = "1 * 2 + 12 * cos((3 / 4) - 14)"
   //test_string: string = "cos(12 + 4) a(1,2)"
-  test_string: string = "foobar := sin(14 + 12) * cos(2 - 3); a + b * c"
+  //test_string: string = "foobar := sin(14 + 12) * cos(2 - 3); a + b * c"
   tokens: #soa[dynamic]Token
   node_stack: queue.Queue(ParseNode)
   node_queue: queue.Queue(ParseNode)
