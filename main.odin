@@ -24,9 +24,17 @@ TokenType :: enum{Number, Ident, InfixOp, Paren, SemiColon}
 // TODO add distinction between Variable, TypeName, and FunctionName instead of just Identifier
 NodeType :: enum{Application, Identifier, Number, Root, InfixOp}
 
+ValueType :: enum{Integer, String, Function}
+
 ParseNode :: struct {
   tokenIndex: int,
   nodeType: NodeType
+}
+
+get_parsed_token_value :: proc(parseNode: ParseNode,
+                               parseState: ParseState) -> Token {
+  tokenIndex: int = parseNode.tokenIndex
+  return parseState.tokens[tokenIndex]
 }
 
 ParserStates :: enum{App, NonTerminal, Terminal}
@@ -39,6 +47,18 @@ ParseState :: struct {
   tokens: ^#soa[dynamic]Token,
   node_queue: ^queue.Queue(ParseNode),
   node_stack: ^queue.Queue(ParseNode),
+}
+
+// Used as SoA to store raw data
+RawValues :: struct {
+  float: ^[dynamic]f64,
+  integer: ^[dynamic]int,
+  str: ^[dynamic]string
+}
+
+ValueLookaside :: struct {
+  valueIndex: int,
+  valueType: ValueType
 }
 
 lookahead_basic :: proc(tokens: ^#soa[dynamic]Token,
@@ -520,28 +540,73 @@ print_tokens_as_rpn :: proc(node_queue: ^queue.Queue(ParseNode),
   fmt.println("")
 }
 
-//interp :: proc(node_queue: ^queue.Queue(ParseNode),
-               //parseState: ParseState) {
-  //value_stack: queue.Queue(
-//}
+interp :: proc(node_queue: ^queue.Queue(ParseNode),
+               parseState: ParseState,
+               evaluation_stack: ^queue.Queue(int),
+               runtime_data: ^#soa[dynamic]ValueLookaside,
+               raw_values: RawValues) -> ^queue.Queue(int) {
+
+  // ValueType :: enum{Integer, String, Function}
+
+  for queue.len(node_queue^) > 0 {
+    parseNode := queue.pop_front(node_queue)
+    switch parseNode.nodeType {
+      case NodeType.Application:
+        fmt.println("application")
+        fmt.println(evaluation_stack)
+      case NodeType.Identifier:
+        fmt.println("identifier")
+      case NodeType.Number:
+        fmt.println("number")
+
+        // TODO, add a function that handles the appends and push and stuff
+        // make it polymorphic so I can re-use it
+        tok: Token = get_parsed_token_value(parseNode, parseState)
+        value, ok := strconv.parse_int(tok.token) // TODO tokenize floats, uints, etc
+        append(raw_values.integer, value)
+        append(runtime_data, ValueLookaside{len(raw_values.integer)-1, ValueType.Integer})
+        queue.push_front(evaluation_stack, len(runtime_data)-1)
+
+      case NodeType.Root:
+        fmt.println("root")
+      case NodeType.InfixOp:
+        fmt.println("infix op")
+    }
+  }
+  return evaluation_stack
+}
 
 main :: proc() {
-  test_string: string = "foo(333*12,blarg,bar(1,2,3), aaaa, 4442, x(94, a), aad)"
+  //test_string: string = "foo(333*12,blarg,bar(1,2,3), aaaa, 4442, x(94, a), aad)"
   //test_string: string = "a = 1 + 111 / (2 - (4 +5)) *(99/ 4)"
   //test_string: string = "a := 1 + 23 + 2 * 3"
   //test_string: string = "1 * 2 + 12 * cos((3 / 4) - 14)"
   //test_string: string = "cos(12 + 4) a(1,2)"
   //test_string: string = "foobar := sin(14 + 12) * cos(2 - 3); a + b * c"
+  test_string: string = "2 + 3 * 4"
   tokens: #soa[dynamic]Token
   node_stack: queue.Queue(ParseNode)
   node_queue: queue.Queue(ParseNode)
 
+  runtime_data: #soa[dynamic]ValueLookaside
+  evaluation_stack: queue.Queue(int)
+  raw_values: RawValues
+  float_values: [dynamic]f64
+  string_values: [dynamic]string // TODO optimize repeated strings?
+  int_values: [dynamic]int
+  raw_values.float = &float_values
+  raw_values.integer = &int_values
+  raw_values.str = &string_values
+
   tokenize(test_string, &tokens)
 
   parseState := ParseState{NodeType.Root, 0, ParserStates.NonTerminal, false, &tokens, &node_queue, &node_stack}
-
   parseState = parse_sep_by(parseState, ";")
 
   fmt.println(test_string)
-  print_tokens_as_rpn(&node_queue, parseState)
+  //print_tokens_as_rpn(&node_queue, parseState)
+  fmt.println(interp(&node_queue, parseState, &evaluation_stack, &runtime_data, raw_values))
+  fmt.println(runtime_data)
+  fmt.println(raw_values)
+  fmt.println(tokens)
 }
