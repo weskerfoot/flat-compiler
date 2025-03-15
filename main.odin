@@ -51,6 +51,9 @@ ParseState :: struct {
 }
 
 // Used as SoA to store raw data
+// TODO, you would map these to a scope as well
+// the scopes could simply be indices that then map to another
+// table where the actual code for a function is stored (and possibly parent scopes if I decide to add closures)
 RawValues :: struct {
   float: ^[dynamic]f64,
   integer: ^[dynamic]int,
@@ -582,6 +585,8 @@ interp :: proc(node_queue: ^queue.Queue(ParseNode),
         tok: Token = get_parsed_token_value(parseNode, parseState)
         left := queue.pop_front(evaluation_stack)
         right := queue.pop_front(evaluation_stack)
+
+        // TODO, you would have to dispatch on the type instead of always using integers
         left_val := get_value(left, runtime_data, raw_values.integer)
         right_val := get_value(right, runtime_data, raw_values.integer)
         switch tok.token {
