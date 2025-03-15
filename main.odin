@@ -543,7 +543,7 @@ print_tokens_as_rpn :: proc(node_queue: ^queue.Queue(ParseNode),
 
 get_value :: proc(runtime_index: int,
                   runtime_data: ^#soa[dynamic]ValueLookaside,
-                  raw_values: [dynamic]$T) -> int {
+                  raw_values: ^[dynamic]$T) -> T {
   runtime_value := runtime_data[runtime_index]
   value_index := runtime_value.valueIndex
   return raw_values[value_index]
@@ -582,26 +582,19 @@ interp :: proc(node_queue: ^queue.Queue(ParseNode),
         tok: Token = get_parsed_token_value(parseNode, parseState)
         left := queue.pop_front(evaluation_stack)
         right := queue.pop_front(evaluation_stack)
+        left_val := get_value(left, runtime_data, raw_values.integer)
+        right_val := get_value(right, runtime_data, raw_values.integer)
         switch tok.token {
           case "*":
-            left_val := raw_values.integer[runtime_data[left].valueIndex] // you would check the type of this
-            right_val := raw_values.integer[runtime_data[right].valueIndex]
             fmt.println(left_val, "*", right_val)
             append(raw_values.integer, left_val * right_val)
           case "+":
-            left_val := raw_values.integer[runtime_data[left].valueIndex] // you would check the type of this
-            right_val := raw_values.integer[runtime_data[right].valueIndex]
-            assert(left != right)
             fmt.println(left_val, "+", right_val)
             append(raw_values.integer, left_val + right_val)
           case "-":
-            left_val := raw_values.integer[runtime_data[left].valueIndex] // you would check the type of this
-            right_val := raw_values.integer[runtime_data[right].valueIndex]
             fmt.println(right_val, "-", left_val)
             append(raw_values.integer, right_val - left_val)
           case "/":
-            left_val := raw_values.integer[runtime_data[left].valueIndex] // you would check the type of this
-            right_val := raw_values.integer[runtime_data[right].valueIndex]
             fmt.println(right_val, "/", left_val)
             append(raw_values.integer, right_val / left_val)
         }
@@ -614,12 +607,12 @@ interp :: proc(node_queue: ^queue.Queue(ParseNode),
 
 main :: proc() {
   //test_string: string = "foo(333*12,blarg,bar(1,2,3), aaaa, 4442, x(94, a), aad)"
-  test_string: string = "1 + 111 / (2 - (4 +5)) *(99/ 4)"
+  //test_string: string = "1 + 111 / (2 - (4 +5)) *(99/ 4)"
   //test_string: string = "a := 1 + 23 + 2 * 3"
   //test_string: string = "1 * 2 + 12 * cos((3 / 4) - 14)"
   //test_string: string = "cos(12 + 4) a(1,2)"
   //test_string: string = "foobar := sin(14 + 12) * cos(2 - 3); a + b * c"
-  //test_string: string = "2 + ((3 * 4) + 7)"
+  test_string: string = "2 + ((3 * 4) + 7)"
   tokens: #soa[dynamic]Token
   node_stack: queue.Queue(ParseNode)
   node_queue: queue.Queue(ParseNode)
