@@ -11,7 +11,8 @@ OpAssoc :: enum{NoAssoc, Left, Right}
 OpIndex :: distinct int
 InfixOperator :: struct {
   prec: int,
-  assoc: OpAssoc
+  assoc: OpAssoc,
+  unary: int
 }
 
 Token :: struct {
@@ -114,21 +115,21 @@ is_operator_char :: proc(c : rune) -> bool {
           c == '^')
 }
 
-op_prec_assoc :: proc(op_st : string) -> (Maybe(int), Maybe(OpAssoc)) {
+get_op_info :: proc(op_st : string) -> (Maybe(int), Maybe(OpAssoc), Maybe(int)) {
   result: int
   switch op_st {
     case ":=": // := has the lowest precedence so, e.g. a = 1 + 2 * 3, gets parsed into a 1 2 3 * + =
-      return 1, OpAssoc.Right
+      return 1, OpAssoc.Right, 0
     case "+", "-":
-      return 2, OpAssoc.Left
+      return 2, OpAssoc.Left, 1 // 1 = it's able to be used as a unary op
     case "*", "/":
-      return 3, OpAssoc.Left
+      return 3, OpAssoc.Left, 0
     case "^":
-      return 4, OpAssoc.Right
+      return 4, OpAssoc.Right, 0
     case ",":
-      return 5, OpAssoc.Left
+      return 5, OpAssoc.Left, 0
   }
-  return nil, nil
+  return nil, nil, nil
 }
 
 get_op :: proc(current_tok_start: int, input_st : string) -> (InfixOperator, int) {
@@ -138,14 +139,15 @@ get_op :: proc(current_tok_start: int, input_st : string) -> (InfixOperator, int
 
   op_st := input_st[current_tok_start:(current_tok_start+num_tokens)]
 
-  maybe_op_prec, maybe_op_assoc := op_prec_assoc(op_st)
+  maybe_op_prec, maybe_op_assoc, maybe_is_unary := get_op_info(op_st)
 
   op_prec, op_prec_ok := maybe_op_prec.?
   op_assoc, op_assoc_ok := maybe_op_assoc.?
+  is_unary, op_is_unary_ok := maybe_is_unary.?
 
   assert (op_prec_ok && op_assoc_ok, "Should always be precedence and associativity for an operator")
 
-  return InfixOperator{op_prec, op_assoc}, current_tok_start+num_tokens
+  return InfixOperator{op_prec, op_assoc, is_unary}, current_tok_start+num_tokens
 }
 
 is_identifier_char :: proc(c : rune) -> bool {
@@ -428,7 +430,13 @@ parse_infix :: proc(parserState: ParseState, minPrec: int) -> ParseState {
 
     curParserState.tokenIndex += 1
 
-    assert (curParserState.tokens[curParserState.tokenIndex].type != TokenType.InfixOp, "Should never be an infix op here")
+    // Should never be an infix op *unless it's a unary op*
+    // then we will parse that out in the main parser function as a unary expression
+    // then when it comes back to this function it should be back parsing normal infix expressions
+    if curParserState.tokens[curParserState.tokenIndex].type == TokenType.InfixOp {
+      check_infix_op, infix_op_ok := curParserState.tokens[curParserState.tokenIndex].infix_op.?
+      assert (check_infix_op.unary == 1, "must be a unary operator if it's an operator here")
+    }
 
     curParserState = parse_infix(curParserState, nextMinPrec)
     expect_not_token(curParserState, "(", #line)
