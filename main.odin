@@ -1,5 +1,6 @@
 package main
 
+import "core:os"
 import "core:fmt"
 import "core:unicode"
 import "core:strconv"
@@ -24,7 +25,7 @@ Token :: struct {
 TokenType :: enum{Number, Ident, InfixOp, Paren, SemiColon}
 
 // TODO add distinction between Variable, TypeName, and FunctionName instead of just Identifier
-NodeType :: enum{Application, Identifier, Number, Root, InfixOp}
+NodeType :: enum{Application, Identifier, Number, Root, InfixOp, UnaryOp}
 
 ValueType :: enum{Integer, String, Function}
 
@@ -435,7 +436,11 @@ parse_infix :: proc(parserState: ParseState, minPrec: int) -> ParseState {
     // then when it comes back to this function it should be back parsing normal infix expressions
     if curParserState.tokens[curParserState.tokenIndex].type == TokenType.InfixOp {
       check_infix_op, infix_op_ok := curParserState.tokens[curParserState.tokenIndex].infix_op.?
+      unary_op_token := curParserState.tokens[curParserState.tokenIndex].token
       assert (check_infix_op.unary == 1, "must be a unary operator if it's an operator here")
+      unary_op := get_parse_node(curParserState, 0)
+      fmt.println("unary op")
+      fmt.println(unary_op_token)
     }
 
     curParserState = parse_infix(curParserState, nextMinPrec)
@@ -486,6 +491,7 @@ parse :: proc(parserState: ParseState) -> ParseState {
         // If we are already parsing an infix expression and this is an infix operator, simply return
         // the parse_infix function will handle consuming the next token
         //fmt.println("in parse and there was an infix op and we were already parsing infix")
+        // unless it's a unary operator then you want to parse that
         return parserState
       }
       else {
@@ -588,6 +594,7 @@ interp :: proc(node_queue: ^queue.Queue(ParseNode),
 
       case NodeType.Root:
         fmt.println("root")
+      case NodeType.UnaryOp:
       case NodeType.InfixOp:
         fmt.println("infix op")
         tok: Token = get_parsed_token_value(parseNode, parseState)
@@ -619,13 +626,9 @@ interp :: proc(node_queue: ^queue.Queue(ParseNode),
 }
 
 main :: proc() {
-  //test_string: string = "foo(333*12,blarg,bar(1,2,3), aaaa, 4442, x(94, a), aad)"
-  //test_string: string = "1 + 111 / (2 - (4 +5)) *(99/ 4)"
-  //test_string: string = "a := 1 + 23 + 2 * 3"
-  //test_string: string = "1 * 2 + 12 * cos((3 / 4) - 14)"
-  //test_string: string = "cos(12 + 4) a(1,2)"
-  //test_string: string = "foobar := sin(14 + 12) * cos(2 - 3); a + b * c"
-  test_string: string = "2 + ((3 * 4) + 7)"
+  input: [256]byte
+  n_chars, err := os.read(os.stdin, input[:])
+  test_string: string = string(input[:n_chars])
   tokens: #soa[dynamic]Token
   node_stack: queue.Queue(ParseNode)
   node_queue: queue.Queue(ParseNode)
