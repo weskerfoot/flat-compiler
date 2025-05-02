@@ -552,8 +552,10 @@ parse :: proc(parserState: ParseState) -> ParseState {
 print_tokens_as_rpn :: proc(node_queue: ^queue.Queue(ParseNode),
                             parseState: ParseState) {
   for queue.len(node_queue^) > 0 {
-    node := queue.pop_front(node_queue)
-    fmt.printf("%s ", parseState.tokens[node.tokenIndex].token)
+    node, ok := queue.pop_front_safe(node_queue)
+    if ok {
+      fmt.printf("%s ", parseState.tokens[node.tokenIndex].token)
+    }
   }
   fmt.println("")
 }
@@ -575,7 +577,10 @@ interp :: proc(node_queue: ^queue.Queue(ParseNode),
   // ValueType :: enum{Integer, String, Function}
 
   for queue.len(node_queue^) > 0 {
-    parseNode := queue.pop_front(node_queue)
+    parseNode, ok := queue.pop_front_safe(node_queue)
+    if !ok {
+      return evaluation_stack
+    }
     switch parseNode.nodeType {
       case NodeType.Application:
         fmt.println("application")
@@ -598,8 +603,15 @@ interp :: proc(node_queue: ^queue.Queue(ParseNode),
       case NodeType.InfixOp:
         fmt.println("infix op")
         tok: Token = get_parsed_token_value(parseNode, parseState)
-        left := queue.pop_front(evaluation_stack)
-        right := queue.pop_front(evaluation_stack)
+        left, left_ok := queue.pop_front_safe(evaluation_stack)
+        right, right_ok := queue.pop_front_safe(evaluation_stack)
+
+        if !(left_ok && right_ok) {
+          return evaluation_stack
+        }
+        if !right_ok {
+          fmt.println("Error, missing right operand")
+        }
 
         // TODO, you would have to dispatch on the type instead of always using integers
         left_val := get_value(left, runtime_data, raw_values.integer)
