@@ -6,5 +6,7 @@ test_5="cos(12 + 4) a(1,2)"
 test_6="foobar := sin(14 + 12) * cos(2 - 3); a + b * c"
 
 make build
-
-echo "1 + -2 / 4" | ./flat-compiler
+test_unary="+-(2+3*12)"
+#test_unary="(2+3*12)"
+echo "test input: $test_unary"
+echo "$test_unary" | ./flat-compiler

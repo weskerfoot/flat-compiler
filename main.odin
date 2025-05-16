@@ -47,6 +47,7 @@ ParseState :: struct {
   tokenIndex: int,
   state: ParserStates,
   parsingInfix: bool,
+  parsingUnary: bool,
   tokens: ^#soa[dynamic]Token,
   node_queue: ^queue.Queue(ParseNode),
   node_stack: ^queue.Queue(ParseNode),
@@ -439,6 +440,7 @@ parse_infix :: proc(parserState: ParseState, minPrec: int) -> ParseState {
       unary_op_token := curParserState.tokens[curParserState.tokenIndex].token
       assert (check_infix_op.unary == 1, "must be a unary operator if it's an operator here")
       unary_op := get_parse_node(curParserState, 0)
+      curParserState.parsingUnary = true
       curParserState = parse(curParserState)
     }
 
@@ -476,6 +478,7 @@ parse_unary :: proc(parserState: ParseState) -> ParseState {
   assert (check_infix_op.unary == 1, "must be a unary operator if it's an operator here")
   unary_op := get_parse_node(curParserState, 0)
   curParserState = skip_tokens(curParserState, 1)
+  curParserState.parsingUnary = false
   curParserState = parse(curParserState)
   queue.push_back(curParserState.node_queue, unary_op)
 
@@ -501,7 +504,7 @@ parse :: proc(parserState: ParseState) -> ParseState {
     case TokenType.InfixOp:
       check_infix_op, infix_op_ok := newParserState.tokens[newParserState.tokenIndex].infix_op.?
       unary_op_token := newParserState.tokens[newParserState.tokenIndex].token
-      if check_infix_op.unary == 1 && parserState.parsingInfix {
+      if check_infix_op.unary == 1 && parserState.parsingUnary {
         fmt.println("got a unary op in parse")
         newParserState = parse_unary(newParserState)
         return newParserState
@@ -677,7 +680,7 @@ main :: proc() {
 
   tokenize(test_string, &tokens)
 
-  parseState := ParseState{NodeType.Root, 0, ParserStates.NonTerminal, false, &tokens, &node_queue, &node_stack}
+  parseState := ParseState{NodeType.Root, 0, ParserStates.NonTerminal, false, false, &tokens, &node_queue, &node_stack}
   parseState = parse_sep_by(parseState, ";")
 
   print_tokens_as_rpn(&node_queue, parseState)
