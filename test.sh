@@ -7,9 +7,4 @@ test_6="foobar := sin(14 + 12) * cos(2 - 3); a + b * c"
 
 make build
 
-echo "Test input = $test_1"
-echo "$test_1" | ./flat-compiler
-echo "Test input = $test_2"
-echo "$test_2" | ./flat-compiler
-echo "Test input = $test_3"
-echo "$test_3" | ./flat-compiler
+echo "1 + -2" | ./flat-compiler

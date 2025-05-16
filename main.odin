@@ -439,8 +439,7 @@ parse_infix :: proc(parserState: ParseState, minPrec: int) -> ParseState {
       unary_op_token := curParserState.tokens[curParserState.tokenIndex].token
       assert (check_infix_op.unary == 1, "must be a unary operator if it's an operator here")
       unary_op := get_parse_node(curParserState, 0)
-      fmt.println("unary op")
-      fmt.println(unary_op_token)
+      curParserState = parse(curParserState)
     }
 
     curParserState = parse_infix(curParserState, nextMinPrec)
@@ -470,6 +469,19 @@ parse_application :: proc(parserState: ParseState) -> ParseState {
   return parse_infix(curParserState, 1)
 }
 
+parse_unary :: proc(parserState: ParseState) -> ParseState {
+  curParserState := parserState
+  check_infix_op, infix_op_ok := curParserState.tokens[curParserState.tokenIndex].infix_op.?
+  unary_op_token := curParserState.tokens[curParserState.tokenIndex].token
+  assert (check_infix_op.unary == 1, "must be a unary operator if it's an operator here")
+  unary_op := get_parse_node(curParserState, 0)
+  curParserState = skip_tokens(curParserState, 1)
+  curParserState = parse(curParserState)
+  queue.push_back(curParserState.node_queue, unary_op)
+
+  return curParserState
+}
+
 parse :: proc(parserState: ParseState) -> ParseState {
 
   if parserState.tokenIndex >= len(parserState.tokens) {
@@ -483,10 +495,17 @@ parse :: proc(parserState: ParseState) -> ParseState {
 
   switch token.type {
     case TokenType.Number:
-      //fmt.println("number")
+      fmt.println("number")
       newParserState = advance_parser(parserState, NodeType.Number, 1, ParserStates.Terminal)
       return parse(newParserState)
     case TokenType.InfixOp:
+      check_infix_op, infix_op_ok := newParserState.tokens[newParserState.tokenIndex].infix_op.?
+      unary_op_token := newParserState.tokens[newParserState.tokenIndex].token
+      if check_infix_op.unary == 1 && parserState.parsingInfix {
+        fmt.println("got a unary op in parse")
+        newParserState = parse_unary(newParserState)
+        return newParserState
+      }
       if parserState.parsingInfix {
         // If we are already parsing an infix expression and this is an infix operator, simply return
         // the parse_infix function will handle consuming the next token
@@ -600,6 +619,7 @@ interp :: proc(node_queue: ^queue.Queue(ParseNode),
       case NodeType.Root:
         fmt.println("root")
       case NodeType.UnaryOp:
+        fmt.println("unary op in interp")
       case NodeType.InfixOp:
         fmt.println("infix op")
         tok: Token = get_parsed_token_value(parseNode, parseState)
@@ -660,8 +680,8 @@ main :: proc() {
   parseState := ParseState{NodeType.Root, 0, ParserStates.NonTerminal, false, &tokens, &node_queue, &node_stack}
   parseState = parse_sep_by(parseState, ";")
 
-  //print_tokens_as_rpn(&node_queue, parseState)
-  fmt.println(interp(&node_queue, parseState, &evaluation_stack, &runtime_data, raw_values))
+  print_tokens_as_rpn(&node_queue, parseState)
+  //fmt.println(interp(&node_queue, parseState, &evaluation_stack, &runtime_data, raw_values))
   //fmt.println(runtime_data)
   //fmt.println(raw_values)
   //fmt.println(tokens)
