@@ -7,4 +7,4 @@ test_6="foobar := sin(14 + 12) * cos(2 - 3); a + b * c"
 
 make build
 
-echo "1 + -2" | ./flat-compiler
+echo "1 + -2 / 4" | ./flat-compiler
