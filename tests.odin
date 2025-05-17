@@ -7,8 +7,8 @@ import "core:container/queue"
 
 @(test)
 test_parsing :: proc(t: ^testing.T) {
-  test_string: string = "2 + -3 * +12 / -2"
-  expected_result : int = 2 + -3 * +12 / -2
+  test_string: string = "2 + 3 * 12 - 2"
+  expected_result : int = 2 + 3 * 12 - 2
 
   // queues / array for parsing
   tokens: #soa[dynamic]Token

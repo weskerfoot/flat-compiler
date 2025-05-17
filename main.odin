@@ -408,6 +408,10 @@ parse_infix :: proc(parserState: ParseState, minPrec: int) -> ParseState {
 
     curParserState.tokenIndex += 1
 
+    if len(curParserState.tokens) <= curParserState.tokenIndex {
+      fmt.panicf("Reached end of expression while expecting more tokens")
+    }
+
     // Should never be an infix op *unless it's a unary op*
     // then we will parse that out in the main parser function as a unary expression
     // then when it comes back to this function it should be back parsing normal infix expressions
@@ -443,7 +447,10 @@ parse_application :: proc(parserState: ParseState) -> ParseState {
   queue.push_back(curParserState.node_queue, func_name)
 
   // If this is not an infix expression it will just continue parsing normally
-  return parse_infix(curParserState, 1)
+  result := parse_infix(curParserState, 1)
+  expect_not_token(curParserState, TokenType.Number, #line)
+  expect_not_token(curParserState, TokenType.Ident, #line)
+  return result
 }
 
 parse_unary :: proc(parserState: ParseState) -> ParseState {
@@ -519,6 +526,9 @@ parse :: proc(parserState: ParseState) -> ParseState {
       else {
         newParserState = advance_parser(parserState, NodeType.Identifier, 1, ParserStates.Terminal)
       }
+
+      expect_not_token(newParserState, TokenType.Ident, #line)
+      expect_not_token(newParserState, TokenType.Number, #line)
 
       return parse(newParserState)
     case TokenType.Paren:
