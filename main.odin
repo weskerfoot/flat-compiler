@@ -292,8 +292,8 @@ expect_token_type :: #force_inline proc(parserState: ParseState,
 }
 
 expect_not_token_type :: #force_inline proc(parserState: ParseState,
-                                       token_type: TokenType,
-                                       lineno: int) {
+                                            token_type: TokenType,
+                                            lineno: int) {
   if parserState.tokenIndex >= len(parserState.tokens) {
     return
   }
@@ -483,6 +483,8 @@ parse :: proc(parserState: ParseState) -> ParseState {
     case TokenType.Number:
       fmt.println("number")
       newParserState = advance_parser(parserState, NodeType.Number, 1, ParserStates.Terminal)
+      expect_not_token(newParserState, TokenType.Number, #line)
+      expect_not_token(newParserState, TokenType.Ident, #line)
       return parse(newParserState)
     case TokenType.InfixOp:
       check_infix_op, infix_op_ok := newParserState.tokens[newParserState.tokenIndex].infix_op.?
@@ -502,7 +504,7 @@ parse :: proc(parserState: ParseState) -> ParseState {
       else {
         // The identifier represents an infix operator, so this is an infix expression
         // and since we're not already parsing an infix expression, kick off the infix parser
-        //fmt.println("infix application")
+        fmt.println("starting new infix parse")
         newParserState = parse_infix(parserState, 1)
         return newParserState
       }
