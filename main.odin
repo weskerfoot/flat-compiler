@@ -5,7 +5,6 @@ import "core:fmt"
 import "core:unicode"
 import "core:strconv"
 import "core:container/queue"
-import "core:text/regex"
 
 OpAssoc :: enum{NoAssoc, Left, Right}
 
@@ -118,7 +117,6 @@ is_operator_char :: proc(c : rune) -> bool {
 }
 
 get_op_info :: proc(op_st : string) -> (Maybe(int), Maybe(OpAssoc), Maybe(int)) {
-  result: int
   switch op_st {
     case ":=": // := has the lowest precedence so, e.g. a = 1 + 2 * 3, gets parsed into a 1 2 3 * + =
       return 1, OpAssoc.Right, 0
@@ -145,7 +143,7 @@ get_op :: proc(current_tok_start: int, input_st : string) -> (InfixOperator, int
 
   op_prec, op_prec_ok := maybe_op_prec.?
   op_assoc, op_assoc_ok := maybe_op_assoc.?
-  is_unary, op_is_unary_ok := maybe_is_unary.?
+  is_unary, _ := maybe_is_unary.?
 
   assert (op_prec_ok && op_assoc_ok, "Should always be precedence and associativity for an operator")
 
@@ -417,9 +415,8 @@ parse_infix :: proc(parserState: ParseState, minPrec: int) -> ParseState {
     // then when it comes back to this function it should be back parsing normal infix expressions
     if curParserState.tokens[curParserState.tokenIndex].type == TokenType.InfixOp {
       check_infix_op, infix_op_ok := curParserState.tokens[curParserState.tokenIndex].infix_op.?
-      unary_op_token := curParserState.tokens[curParserState.tokenIndex].token
+      assert (infix_op_ok, "must be an infix operator here")
       assert (check_infix_op.unary == 1, "must be a unary operator if it's an operator here")
-      unary_op := get_parse_node(curParserState, 0)
       curParserState.parsingUnary = true
       curParserState = parse(curParserState)
     }
@@ -456,8 +453,9 @@ parse_application :: proc(parserState: ParseState) -> ParseState {
 parse_unary :: proc(parserState: ParseState) -> ParseState {
   curParserState := parserState
   check_infix_op, infix_op_ok := curParserState.tokens[curParserState.tokenIndex].infix_op.?
-  unary_op_token := curParserState.tokens[curParserState.tokenIndex].token
-
+  if !infix_op_ok {
+    fmt.panicf("Expected an operator token when parsing unary expression")
+  }
   assert (check_infix_op.unary == 1, "must be a unary operator")
 
   // Need to set this so get_parse_node has the correct type
@@ -495,7 +493,9 @@ parse :: proc(parserState: ParseState) -> ParseState {
       return parse(newParserState)
     case TokenType.InfixOp:
       check_infix_op, infix_op_ok := newParserState.tokens[newParserState.tokenIndex].infix_op.?
-      unary_op_token := newParserState.tokens[newParserState.tokenIndex].token
+      if !infix_op_ok {
+        fmt.panicf("Encountered an invalid infix operator")
+      }
       if check_infix_op.unary == 1 && parserState.parsingUnary {
         fmt.println("got a unary op in parse")
         newParserState = parse_unary(newParserState)
@@ -588,9 +588,9 @@ interp :: proc(node_queue: ^queue.Queue(ParseNode),
   // ValueType :: enum{Integer, String, Function}
 
   for queue.len(node_queue^) > 0 {
-    parseNode, ok := queue.pop_front_safe(node_queue)
+    parseNode, parse_ok := queue.pop_front_safe(node_queue)
     fmt.println(parseNode)
-    if !ok {
+    if !parse_ok {
       fmt.println("node queue empty, finishing")
       return evaluation_stack
     }
@@ -605,7 +605,10 @@ interp :: proc(node_queue: ^queue.Queue(ParseNode),
         // TODO, add a function that handles the appends and push and stuff
         // make it polymorphic so I can re-use it
         tok: Token = get_parsed_token_value(parseNode, parseState)
-        value, ok := strconv.parse_int(tok.token) // TODO tokenize floats, uints, etc
+        value, num_ok := strconv.parse_int(tok.token) // TODO tokenize floats, uints, etc
+        if !num_ok {
+          fmt.panicf("Encountered an invalid integer value \"%s\"", tok.token)
+        }
         append(raw_values.integer, value)
         append(runtime_data, ValueLookaside{len(raw_values.integer)-1, ValueType.Integer})
         queue.push_front(evaluation_stack, len(runtime_data)-1)
@@ -616,6 +619,11 @@ interp :: proc(node_queue: ^queue.Queue(ParseNode),
         fmt.println("unary op")
         tok: Token = get_parsed_token_value(parseNode, parseState)
         val_node, val_node_ok := queue.pop_front_safe(evaluation_stack)
+
+        if !val_node_ok {
+          fmt.panicf("Encountered an invalid value node")
+        }
+
         val := get_value(val_node, runtime_data, raw_values.integer)
         fmt.println(val)
         switch tok.token {
@@ -671,6 +679,11 @@ interp :: proc(node_queue: ^queue.Queue(ParseNode),
 main :: proc() {
   input: [256]byte
   n_chars, err := os.read(os.stdin, input[:])
+
+  if n_chars <= 0 {
+    fmt.panicf("Failed to read input, err = %s", err)
+  }
+
   test_string: string = string(input[:n_chars])
   tokens: #soa[dynamic]Token
   node_stack: queue.Queue(ParseNode)

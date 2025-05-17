@@ -105,9 +105,10 @@ test_parsing :: proc(t: ^testing.T) {
 
     // get the final value on the stack
     actual_result := raw_values.integer[len(raw_values.integer)-1]
-    error_string := fmt.aprintf("expected_result = %d, actual_result = %d",
-                               expected_output,
-                               actual_result)
+    error_string := fmt.aprintf("test number = %d, expected_result = %d, actual_result = %d",
+                                i,
+                                expected_output,
+                                actual_result)
 
     testing.expect(t, actual_result == expected_output, error_string)
     log.info(error_string)
