@@ -260,26 +260,6 @@ advance_parser :: proc(parserState: ParseState,
   return newParserState
 }
 
-drain_stack :: proc(parseState: ParseState) -> ParseState {
-  for queue.len(parseState.node_stack^) > 0 {
-    queue.push_front(parseState.node_queue, queue.pop_back(parseState.node_stack))
-  }
-  return parseState
-}
-
-reset_node_type :: proc(parserState: ParseState, nodeType: NodeType) -> ParseState {
-  newParserState := parserState
-  queue.peek_front(newParserState.node_queue).nodeType = nodeType
-  return newParserState
-}
-
-get_latest_token :: proc(parserState: ParseState) -> Maybe(Token) {
-  if (parserState.tokenIndex >= len(parserState.tokens)) {
-    return nil
-  }
-  return parserState.tokens[parserState.tokenIndex]
-}
-
 expect_token_st :: #force_inline proc(parserState: ParseState,
                                       token_value: string,
                                       lineno: int) {
@@ -369,11 +349,13 @@ parse_sep_by :: proc(parserState: ParseState, sep: string) -> ParseState {
 }
 
 parse_infix :: proc(parserState: ParseState, minPrec: int) -> ParseState {
+  // this algorithm is based on the "precedence climbing" algorithm
+  // see https://eli.thegreenplace.net/2012/08/02/parsing-expressions-by-precedence-climbing
+  // it is tweaked to work without requiring an AST and also allows for unary operators
   if parserState.tokenIndex >= len(parserState.tokens) {
     return parserState
   }
 
-  //fmt.println(parserState.tokens[parserState.tokenIndex:])
   assert (parserState.tokenIndex < len(parserState.tokens), "Should never seek beyond tokens length")
   curParserState: ParseState
 
@@ -388,25 +370,21 @@ parse_infix :: proc(parserState: ParseState, minPrec: int) -> ParseState {
   }
   else {
     // otherwise parse it, and it will stop once it hits an infix op
-    //fmt.println("parsing lhs")
     curParserState = parse(parserState)
   }
   curParserState.parsingInfix = true
 
   for true {
     if curParserState.tokenIndex >= len(curParserState.tokens) {
-      //fmt.println("breaking because we consumed all tokens")
       break
     }
 
     cur_token: Token = curParserState.tokens[curParserState.tokenIndex]
     if cur_token.type != TokenType.InfixOp || cur_token.infix_op.?.prec < minPrec {
-      //fmt.println("breaking because the either we encountered no infix op, or current operator has prec < minPrec, ", cur_token, minPrec)
       break
     }
 
     if cur_token.token == ")" {
-      //fmt.println("found a right paren so breaking")
       curParserState = skip_tokens(curParserState, 1)
       curParserState.parsingInfix = false
       break
@@ -416,8 +394,6 @@ parse_infix :: proc(parserState: ParseState, minPrec: int) -> ParseState {
 
     prec := cur_token.infix_op.?.prec
     assoc := cur_token.infix_op.?.assoc
-
-    //fmt.println(prec, assoc, cur_token.token)
 
     nextMinPrec: int
     if assoc == OpAssoc.Left {
@@ -460,7 +436,6 @@ parse_application :: proc(parserState: ParseState) -> ParseState {
   expect_token(curParserState, TokenType.Ident, #line)
 
   func_name := get_parse_node(curParserState, 0)
-  //fmt.println(func_name)
   curParserState = skip_tokens(curParserState, 1)
   curParserState.parsingInfix = true // TODO check for comma separated list
 
@@ -475,11 +450,19 @@ parse_unary :: proc(parserState: ParseState) -> ParseState {
   curParserState := parserState
   check_infix_op, infix_op_ok := curParserState.tokens[curParserState.tokenIndex].infix_op.?
   unary_op_token := curParserState.tokens[curParserState.tokenIndex].token
-  assert (check_infix_op.unary == 1, "must be a unary operator if it's an operator here")
+
+  assert (check_infix_op.unary == 1, "must be a unary operator")
+
+  // Need to set this so get_parse_node has the correct type
+  curParserState.nodeType = NodeType.UnaryOp
   unary_op := get_parse_node(curParserState, 0)
+
   curParserState = skip_tokens(curParserState, 1)
+
+  // No longer parsing a unary op
   curParserState.parsingUnary = false
   curParserState = parse(curParserState)
+
   queue.push_back(curParserState.node_queue, unary_op)
 
   return curParserState
@@ -524,18 +507,12 @@ parse :: proc(parserState: ParseState) -> ParseState {
         return newParserState
       }
     case TokenType.Ident:
-      //fmt.println("identifier")
-
       // Check if it's a left paren, then it's a function application
       // Need to check the *next token*
       left_paren, tokens_ok := lookahead(newParserState.tokens, newParserState.tokenIndex, 1).?
 
-      //fmt.println(left_paren)
-
       if tokens_ok && left_paren.token == "(" {
-        //fmt.println("application")
         newParserState = parse_application(newParserState)
-        //fmt.println("done parsing application")
       }
       else {
         newParserState = advance_parser(parserState, NodeType.Identifier, 1, ParserStates.Terminal)
@@ -550,7 +527,6 @@ parse :: proc(parserState: ParseState) -> ParseState {
         // TODO, test to see what happens if this isn't actually an infix expression
         // what should it do in that case? let parse_infix parse the lhs then just return?
         // that should work reliably
-        //fmt.println("Starting a new parenthesized infix parse")
         expect_token(parserState, "(", #line)
         newParserState = parserState
         newParserState = skip_tokens(parserState, 1)
@@ -596,11 +572,14 @@ interp :: proc(node_queue: ^queue.Queue(ParseNode),
                runtime_data: ^#soa[dynamic]ValueLookaside,
                raw_values: RawValues) -> ^queue.Queue(int) {
 
+  fmt.println("interpreting")
   // ValueType :: enum{Integer, String, Function}
 
   for queue.len(node_queue^) > 0 {
     parseNode, ok := queue.pop_front_safe(node_queue)
+    fmt.println(parseNode)
     if !ok {
+      fmt.println("node queue empty, finishing")
       return evaluation_stack
     }
     switch parseNode.nodeType {
@@ -622,7 +601,22 @@ interp :: proc(node_queue: ^queue.Queue(ParseNode),
       case NodeType.Root:
         fmt.println("root")
       case NodeType.UnaryOp:
-        fmt.println("unary op in interp")
+        fmt.println("unary op")
+        tok: Token = get_parsed_token_value(parseNode, parseState)
+        val_node, val_node_ok := queue.pop_front_safe(evaluation_stack)
+        val := get_value(val_node, runtime_data, raw_values.integer)
+        fmt.println(val)
+        switch tok.token {
+          case "+":
+            fmt.println("+", val)
+            append(raw_values.integer, +val)
+          case "-":
+            fmt.println("-", val)
+            append(raw_values.integer, -val)
+        }
+        append(runtime_data, ValueLookaside{len(raw_values.integer)-1, ValueType.Integer})
+        queue.push_front(evaluation_stack, len(runtime_data)-1)
+
       case NodeType.InfixOp:
         fmt.println("infix op")
         tok: Token = get_parsed_token_value(parseNode, parseState)
@@ -630,6 +624,7 @@ interp :: proc(node_queue: ^queue.Queue(ParseNode),
         right, right_ok := queue.pop_front_safe(evaluation_stack)
 
         if !(left_ok && right_ok) {
+          fmt.println("reached end of tokens to evaluate")
           return evaluation_stack
         }
         if !right_ok {
@@ -657,6 +652,7 @@ interp :: proc(node_queue: ^queue.Queue(ParseNode),
         queue.push_front(evaluation_stack, len(runtime_data)-1)
     }
   }
+  fmt.println("top value = ", queue.peek_front(evaluation_stack))
   return evaluation_stack
 }
 
@@ -684,8 +680,4 @@ main :: proc() {
   parseState = parse_sep_by(parseState, ";")
 
   print_tokens_as_rpn(&node_queue, parseState)
-  //fmt.println(interp(&node_queue, parseState, &evaluation_stack, &runtime_data, raw_values))
-  //fmt.println(runtime_data)
-  //fmt.println(raw_values)
-  //fmt.println(tokens)
 }

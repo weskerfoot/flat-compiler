@@ -1,12 +1,22 @@
-test_1="foo(333*12,blarg,bar(1,2,3), aaaa, 4442, x(94, a), aad)"
-test_2="1 + 111 / (2 - (4 +5)) *(99/ 4)"
-test_3="a := 1 + 23 + 2 * 3"
-test_4="1 * 2 + 12 * cos((3 / 4) - 14)"
-test_5="cos(12 + 4) a(1,2)"
-test_6="foobar := sin(14 + 12) * cos(2 - 3); a + b * c"
+#! /usr/bin/env bash
+
+tests=(
+  "foo(333*12,blarg,bar(1,2,3), aaaa, 4442, x(94, a), aad)"
+  "1 + 111 / (2 - (4 +5)) *(99/ 4)"
+  "a := 1 + 23 + 2 * 3"
+  "1 * 2 + 12 * cos((3 / 4) - 14)"
+  "cos(12 + 4) a(1,2)"
+  "foobar := sin(14 + 12) * cos(2 - 3); a + b * c"
+  "2 + 3 * -12 / 2"
+  "2 + 3 * 12 +"
+)
 
 make build
-test_unary="+-(2+3*12)"
-#test_unary="(2+3*12)"
-echo "test input: $test_unary"
-echo "$test_unary" | ./flat-compiler
+
+for i in "${!tests[@]}"; do
+  echo "Running test $((i + 1)):"
+  echo "Input = ${tests[$i]}"
+  echo "${tests[$i]}" | ./flat-compiler
+  echo "-------------------------"
+done
+
